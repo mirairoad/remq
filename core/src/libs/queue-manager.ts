@@ -107,7 +107,7 @@ export class QueueManager<T = unknown> implements QueueManagerInterface<T> {
       await this.streamdb.xgroup(
         'CREATE',
         `${queueName}-stream`,
-        '*', // keep an eye on this as the consumer is always worker
+        'workers', // keep an eye on this as the consumer is always worker
         '$',
         'MKSTREAM',
       );
