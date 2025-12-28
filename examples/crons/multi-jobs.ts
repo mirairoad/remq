@@ -1,9 +1,7 @@
-import type { Task } from '@core/types/index.ts';
+import { tempotask } from '../tempotask.plugin.ts';
 
-const task: Task<unknown> = {
-  name: 'multi-jobs',
-  queue: 'crons',
-  handler: (job, ctx) => {
+tempotask.registerHandler({
+  handler: (job: any, ctx: any) => {
     console.log(
       '%c- runs every minute',
       'color: white; background-color: blue;',
@@ -11,14 +9,11 @@ const task: Task<unknown> = {
     setTimeout(() => {
     }, 5000);
   },
+  event: 'multi-jobs',
   options: {
     repeat: {
       pattern: '* * * * *',
     },
-    // delayUntil: new Date(Date.now() + 60000),
-    // retryCount: 3,
-    // retryDelayMs: 5000,
   },
-};
+});
 
-export default task;

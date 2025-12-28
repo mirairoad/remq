@@ -1,6 +1,7 @@
 {
   "workspace": [
     "core/",
+    "core_v2/",
     "examples/"
   ],
   "tasks": {

@@ -1,23 +1,19 @@
-import type { Task } from '@core/types/index.ts';
+import { tempotask } from '../tempotask.plugin.ts';
 
 type DataStructure = {
-  users: {
-    name: string;
-    email: string;
-  }[];
+  id: number;
+  name: string;
+  email: string;
 };
 
-const task: Task<DataStructure> = {
-  name: 'start',
-  queue: 'crons',
+tempotask.registerHandler({
   handler: async (job, ctx) => {
-
     console.log(
       '%c- runs every 30 seconds',
       'color: white; background-color: yellow;',
     );
 
-    const users = [
+    const users: DataStructure[] = [
       {
         id: 1,
         name: 'John Wick',
@@ -34,29 +30,24 @@ const task: Task<DataStructure> = {
         email: 'jim.beam@example.com',
       },
     ];
+    
     for (let i = 0; i < 3; i++) {
-      ctx.addJob({
-        name: 'onrequest',
-        queue: 'crons',
+      ctx.emit({
+        event: 'on-request',
         data: users[i],
         options: {
-          id: `onrequest-${i}`,
+          id: `on-request-${i}`,
         },
       });
-      await job.logger(`added job onrequest-${i}`);
+      await job.logger?.(`added job on-request-${i}`);
     }
-    //   ctx.addJob('scheduler/onrequest', users[i], {
-    //     id: `onrequest-${i}`,
-    //   });
-    //   await job.logger(`added job onrequest-${i}`);
-    // }
   },
+  event: 'start',
   options: {
     repeat: {
-      pattern: '*/30 * * * * *',
+      pattern: '* * * * * ',
     },
-    attempts: 3,
+    // debounce: 10,
+    // attempts: 1,
   },
-};
-
-export default task;
+});

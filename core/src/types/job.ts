@@ -115,7 +115,7 @@ export type JobType<C> = {
  * @template T - The type of context the job will receive
  */
 export interface defaultContext {
-  addJob: ({name, queue, description, data, options}: {name: string, queue: string, description?: string, data: unknown, options?: JobOptions}) => void;
+  emit: ({name, queue, description, data, options}: {name: string, queue: string, description?: string, data: unknown, options?: JobOptions}) => void;
 }
 
 /**
@@ -153,7 +153,7 @@ export interface ExtHandler<T, C> {
  *
  *     // Create child jobs with the context
  *     for (let i = 0; i < 10; i++) {
- *       ctx.addJob('scheduler/onrequest', {
+ *       ctx.emit('scheduler/onrequest', {
  *         name: 'onrequest',
  *         queue: 'scheduler',
  *         data: {},

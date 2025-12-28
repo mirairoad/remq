@@ -62,6 +62,11 @@ export class Worker extends EventTarget {
    */
   readonly #activeJobs = new Set<Promise<void>>();
 
+  /**
+   * List of queue names this worker can process (for multi-queue support)
+   */
+  readonly queueNames?: string[];
+
   // Improved messages for job status changes
   private readonly JOB_STATUS_MESSAGES = {
     processing: 'Job execution started',
@@ -81,6 +86,8 @@ export class Worker extends EventTarget {
    * You can also use {@link Queue.createWorker} as a shorthand to construct a worker for a queue.
    *
    * This constructor is useful if your worker is in separate process from the queue.
+   * 
+   * @param queueNames - Optional array of queue names for multi-queue processing
    */
   constructor(
     db: unknown,
@@ -88,6 +95,7 @@ export class Worker extends EventTarget {
     handler: JobHandler<any>,
     options: WorkerOptions = {},
     streamdb?: RedisConnection,
+    queueNames?: string[], // Add support for multiple queues
   ) {
     super();
     if (!isRedisConnection(db)) {
@@ -98,6 +106,7 @@ export class Worker extends EventTarget {
     this.db = db;
     this.streamdb = streamdb || db;
     this.key = key;
+    this.queueNames = queueNames; // Store queue names for multi-queue support
     this.handler = handler;
     this.options = {
       concurrency: options.concurrency ?? 1,
@@ -238,17 +247,42 @@ export class Worker extends EventTarget {
           }
         }
 
-        // Check if queue is paused
-        const pausedKey = `queues:${this.key}:paused`;
-        const isPaused = await this.db.get(pausedKey);
+        // Check if queue is paused (for multi-queue, check all queues)
+        const queuesToCheck = this.queueNames || [this.key];
+        let allPaused = true;
+        for (const queueName of queuesToCheck) {
+          const pausedKey = `queues:${queueName}:paused`;
+          const isPaused = await this.db.get(pausedKey);
+          if (!isPaused) {
+            allPaused = false;
+            break;
+          }
+        }
 
-        if (isPaused) {
+        if (allPaused && queuesToCheck.length > 0) {
           await delay(this.options.pollIntervalMs);
           continue;
         }
+
         try {
-          // Get jobs from the stream using consumer group
-          const jobs: JobData[] = await this.readQueueStream(this.key);
+          // For multi-queue workers, read from all queues
+          let jobs: JobData[] = [];
+          
+          if (this.queueNames && this.queueNames.length > 0) {
+            // Multi-queue mode: try reading from each queue
+            for (const queueName of this.queueNames) {
+              const queueJobs = await this.readQueueStream(queueName);
+              jobs.push(...queueJobs);
+              
+              // If we got jobs, break to process them (work-stealing approach)
+              if (queueJobs.length > 0) {
+                break;
+              }
+            }
+          } else {
+            // Single queue mode (existing behavior)
+            jobs = await this.readQueueStream(this.key);
+          }
 
           if (jobs.length === 0) {
             await delay(this.options.pollIntervalMs);
@@ -264,8 +298,9 @@ export class Worker extends EventTarget {
               );
               // Process jobs sequentially as fallback
               for (const job of jobs) {
+                const jobQueue = job.state?.queue || this.key;
                 const jobData = await this.db?.get(
-                  `queues:${this.key}:${job.id}:${job.status}`,
+                  `queues:${jobQueue}:${job.id}:${job.status}`,
                 );
                 job.paused = jobData ? JSON.parse(jobData)?.paused : false;
 
@@ -280,7 +315,8 @@ export class Worker extends EventTarget {
 
               // Add all get commands to the pipeline
               for (const job of jobs) {
-                pipeline.get(`queues:${this.key}:${job.id}:${job.status}`);
+                const jobQueue = job.state?.queue || this.key;
+                pipeline.get(`queues:${jobQueue}:${job.id}:${job.status}`);
               }
 
               // Execute all commands in a single roundtrip
@@ -456,13 +492,18 @@ export class Worker extends EventTarget {
       }
     } catch (error: unknown) {
       // Handle failed state
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isConfigError = errorMessage.includes('No handler found') || 
+                           errorMessage.includes('No handlers registered') ||
+                           errorMessage.includes('is undefined');
+      
       const failedData = {
         ...jobEntry,
         status: 'failed',
         timestamp: Date.now(),
         errors: [
           {
-            message: error instanceof Error ? error.message : String(error),
+            message: errorMessage,
             stack: error instanceof Error ? error.stack : undefined,
             timestamp: Date.now(),
           },
@@ -484,8 +525,8 @@ export class Worker extends EventTarget {
       );
 
       try {
-        // Handle job retry
-        if (jobEntry.retryCount > 0) {
+        // Handle job retry - but don't retry configuration errors
+        if (jobEntry.retryCount > 0 && !isConfigError) {
           console.log(
             `Job ${jobEntry.id}: Retrying ${jobEntry.retryCount} more times`,
           );
@@ -495,7 +536,7 @@ export class Worker extends EventTarget {
             delayUntil: Date.now() + jobEntry.retryDelayMs,
             lockUntil: Date.now(),
             retryCount: jobEntry.retryCount - 1,
-            retriedAttempts: jobEntry?.retriedAttempts + 1,
+            retriedAttempts: (jobEntry?.retriedAttempts || 0) + 1,
             logs: [...(jobEntry.logs || []), {
               message: `retrying ${jobEntry.retryCount} more times`,
               timestamp: Date.now(),
@@ -508,10 +549,26 @@ export class Worker extends EventTarget {
             'data',
             JSON.stringify(retryJob),
           );
+        } else if (isConfigError) {
+          console.error(
+            `Job ${jobEntry.id}: Configuration error detected. Not retrying. Error: ${errorMessage}`,
+          );
+          // Remove from stream immediately for config errors
+          if (jobEntry.messageId) {
+            await this.streamdb.xack(
+              `${this.key}-stream`,
+              'workers',
+              jobEntry.messageId,
+            );
+            await this.streamdb.xdel(
+              `${this.key}-stream`,
+              jobEntry.messageId,
+            );
+          }
         }
 
-        // Don't remove failed messages if they can be retried
-        if (!jobEntry.retryCount) {
+        // Don't remove failed messages if they can be retried (and it's not a config error)
+        if (!jobEntry.retryCount || isConfigError) {
           await this.streamdb.xack(
             `${this.key}-stream`,
             'workers',
@@ -741,90 +798,97 @@ export class Worker extends EventTarget {
 
   // Add this method to scan for and recover waiting jobs
   async recoverWaitingJobs(): Promise<number> {
-    // Scan Redis for waiting jobs that should be requeued
-    const pattern = `queues:${this.key}:*:waiting`;
-    let cursor = '0';
-    let recovered = 0;
+    const queuesToRecover = this.queueNames || [this.key];
+    let totalRecovered = 0;
 
-    do {
-      // Scan for waiting jobs
-      const [nextCursor, keys] = await this.db.scan(
-        cursor,
-        'MATCH',
-        pattern,
-        'COUNT',
-        100,
-      );
-      cursor = nextCursor;
+    for (const queueName of queuesToRecover) {
+      // Scan Redis for waiting jobs that should be requeued
+      const pattern = `queues:${queueName}:*:waiting`;
+      let cursor = '0';
+      let recovered = 0;
 
-      if (keys.length === 0) continue;
+      do {
+        // Scan for waiting jobs
+        const [nextCursor, keys] = await this.db.scan(
+          cursor,
+          'MATCH',
+          pattern,
+          'COUNT',
+          100,
+        );
+        cursor = nextCursor;
 
-      // Use pipeline for efficiency
-      const pipeline = this.db.pipeline ? this.db.pipeline() : null;
+        if (keys.length === 0) continue;
 
-      for (const key of keys) {
-        // Get job data
+        // Use pipeline for efficiency
+        const pipeline = this.db.pipeline ? this.db.pipeline() : null;
+
+        for (const key of keys) {
+          // Get job data
+          if (pipeline) {
+            pipeline.get(key);
+          } else {
+            const jobData = await this.db.get(key);
+            if (jobData) {
+              const job = JSON.parse(jobData);
+              // Ensure logs array exists
+              if (!job.logs) {
+                job.logs = [];
+              }
+
+              // Add recovered status to logs
+              job.logs.push({
+                message: this.JOB_STATUS_MESSAGES.recovered,
+                timestamp: Date.now(),
+              });
+
+              await this.streamdb.xadd(
+                `${queueName}-stream`,
+                '*',
+                'data',
+                JSON.stringify(job),
+              );
+              recovered++;
+            }
+          }
+        }
+
+        // If pipelining is supported, process the results
         if (pipeline) {
-          pipeline.get(key);
-        } else {
-          const jobData = await this.db.get(key);
-          if (jobData) {
-            const job = JSON.parse(jobData);
-            // Ensure logs array exists
-            if (!job.logs) {
-              job.logs = [];
+          const results = await pipeline.exec() as [
+            Error | null,
+            string | null,
+          ][];
+          for (const [err, jobData] of results) {
+            if (!err && jobData) {
+              const job = JSON.parse(jobData);
+
+              // Ensure logs array exists
+              if (!job.logs) {
+                job.logs = [];
+              }
+
+              // Add recovered status to logs
+              job.logs.push({
+                message: this.JOB_STATUS_MESSAGES.recovered,
+                timestamp: Date.now(),
+              });
+
+              await this.streamdb.xadd(
+                `${queueName}-stream`,
+                '*',
+                'data',
+                JSON.stringify(job),
+              );
+              recovered++;
             }
-
-            // Add recovered status to logs
-            job.logs.push({
-              message: this.JOB_STATUS_MESSAGES.recovered,
-              timestamp: Date.now(),
-            });
-
-            await this.streamdb.xadd(
-              `${this.key}-stream`,
-              '*',
-              'data',
-              JSON.stringify(job),
-            );
-            recovered++;
           }
         }
-      }
+      } while (cursor !== '0');
 
-      // If pipelining is supported, process the results
-      if (pipeline) {
-        const results = await pipeline.exec() as [
-          Error | null,
-          string | null,
-        ][];
-        for (const [err, jobData] of results) {
-          if (!err && jobData) {
-            const job = JSON.parse(jobData);
+      totalRecovered += recovered;
+    }
 
-            // Ensure logs array exists
-            if (!job.logs) {
-              job.logs = [];
-            }
-
-            // Add recovered status to logs
-            job.logs.push({
-              message: this.JOB_STATUS_MESSAGES.recovered,
-              timestamp: Date.now(),
-            });
-
-            await this.streamdb.xadd(
-              `${this.key}-stream`,
-              '*',
-              'data',
-              JSON.stringify(job),
-            );
-            recovered++;
-          }
-        }
-      }
-    } while (cursor !== '0');
-
-    return recovered;
+    return totalRecovered;
   }
 }

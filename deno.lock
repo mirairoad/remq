@@ -98,6 +98,13 @@
           "npm:ioredis@^5.6.1"
         ]
       },
+      "core_v2": {
+        "dependencies": [
+          "jsr:@hono/hono@^4.7.7",
+          "jsr:@p4sca1/cron-schedule@^5.0.3",
+          "npm:ioredis@^5.6.1"
+        ]
+      },
       "examples": {
         "dependencies": [
           "jsr:@p4sca1/cron-schedule@^5.0.3",

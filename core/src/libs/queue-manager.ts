@@ -8,21 +8,22 @@ import type {
 } from '../types/index.ts';
 import { parseCronExpression } from 'cron-schedule';
 import { Queue } from './queue.ts';
-import type { Worker } from './worker.ts';
+import { Worker } from './worker.ts';
 
 /**
  * QueueManager class for managing job queues
  */
 
 
-interface QueueManagerInterface<T = unknown>
-  extends Omit<QueueManager<T>, 'createConsumerGroup' | 'logger' | 'trimJobs'> {
+interface ProcessingManagerInterface<T = unknown>
+  extends Omit<ProcessingManager<T>, 'createConsumerGroup' | 'logger' | 'trimJobs'> {
 }
 
-export class QueueManager<T = unknown> implements QueueManagerInterface<T> {
-  private static instance: QueueManager<any>;
+export class ProcessingManager<T = unknown> implements ProcessingManagerInterface<T> {
+  private static instance: ProcessingManager<any>;
   private queues: { [key: string]: { [key: string]: Queue } } = {};
   private workers: { [key: string]: Worker } = {};
+  private defaultWorker?: Worker; // Add default worker
   private handlers: {
     [key: string]: { [key: string]: JobHandler<any> };
   } = {};
@@ -31,67 +32,80 @@ export class QueueManager<T = unknown> implements QueueManagerInterface<T> {
   private concurrency: number;
   private streamdb: RedisConnection;
   private maxJobsPerStatus: number;
+  private useDefaultWorker: boolean = false; // Flag to enable default worker
   private constructor(
     db: RedisConnection,
     ctx: T,
     concurrency: number,
     streamdb?: RedisConnection,
     maxJobsPerStatus: number = 200,
+    useDefaultWorker: boolean = false,
   ) {
     this.db = db;
-    this.ctx = { ...ctx, addJob: this.addJob.bind(this) } as T;
+    this.ctx = { ...ctx, emit: this.emit.bind(this) } as T;
     this.concurrency = concurrency;
     this.streamdb = streamdb || db;
     this.maxJobsPerStatus = maxJobsPerStatus;
+    this.useDefaultWorker = useDefaultWorker;
   }
 
   /**
    * Initializes the queue manager
    * @param db - Redis connection
    * @param ctx - Context object
-   * @param concurrency - Number of concurrent jobs
+   * @param concurrency - Number of concurrent jobs (or 'auto' to use all CPU cores)
    * @returns QueueManager instance
    */
   static init<T>(
    args: { 
     db: RedisConnection,
     ctx: T, 
-    concurrency: number,
+    concurrency: number | 'auto', // Allow 'auto' for CPU cores
     options: { maxJobsPerStatus: number },
+    useDefaultWorker?: boolean, // New option to enable default worker
   }
-  ): QueueManager<T> {
-    if (!QueueManager.instance) {
+  ): ProcessingManager<T> {
+    if (!ProcessingManager.instance) {
       let streamdbIndex = args.db?.options?.db;
       let streamdb;
-      // if (db?.options?.optimise) {
-        streamdbIndex = args.db?.options?.db ? args.db?.options?.db + 1 : 1;
-        if (streamdbIndex > 15) {
-          throw new Error(`Redis database limit reached\n\n
-              Optimise is enable means your "options.db + 1" is greater than 15
-              \n\n
-              Select a number between 0 and 14 when optimise is enable
-              \n\n
-              THIS IS A CUSTOM OPTIONS FOR REDIS CONNECTION
-              \n\n
-              const redisOption = {
-                db: 0-15,
-              } OR
-              \n\n
-              `);
-        }
-        streamdb = args.db?.duplicate({ db: streamdbIndex });
-      // } else {
-      //   streamdb = db;
-      // }
-      QueueManager.instance = new QueueManager(
+      streamdbIndex = args.db?.options?.db ? args.db?.options?.db + 1 : 1;
+      if (streamdbIndex > 15) {
+        throw new Error(`Redis database limit reached\n\n
+            Optimise is enable means your "options.db + 1" is greater than 15
+            \n\n
+            Select a number between 0 and 14 when optimise is enable
+            \n\n
+            THIS IS A CUSTOM OPTIONS FOR REDIS CONNECTION
+            \n\n
+            const redisOption = {
+              db: 0-15,
+            } OR
+            \n\n
+            `);
+      }
+      streamdb = args.db?.duplicate({ db: streamdbIndex });
+      
+      // Determine concurrency
+      let actualConcurrency: number;
+      if (args.concurrency === 'auto') {
+        // Use Deno's available CPU cores
+        actualConcurrency = typeof navigator !== 'undefined' && navigator.hardwareConcurrency 
+          ? navigator.hardwareConcurrency 
+          : 4; // Fallback to 4 if not available
+      } else {
+        actualConcurrency = args.concurrency;
+      }
+
+      ProcessingManager.instance = new ProcessingManager(
         args.db,
         args.ctx,
-        args.concurrency,
+        actualConcurrency,
         streamdb,
         args.options.maxJobsPerStatus,
+        args.useDefaultWorker ?? false,
       );
     }
-    return QueueManager.instance as QueueManager<T>;
+    return ProcessingManager.instance as ProcessingManager<T>;
   }
 
   /**
@@ -107,7 +121,7 @@ export class QueueManager<T = unknown> implements QueueManagerInterface<T> {
       await this.streamdb.xgroup(
         'CREATE',
         `${queueName}-stream`,
-        '*', // keep an eye on this as the consumer is always worker
+        'worker', // keep an eye on this as the consumer is always worker
         '$',
         'MKSTREAM',
       );
@@ -122,26 +136,20 @@ export class QueueManager<T = unknown> implements QueueManagerInterface<T> {
    * @param job - Job configuration
    * @throws Error if job name or queue is invalid
    */
-  registerJob<D = unknown, T = unknown>(
+  registerHandler<D = unknown, T = unknown>(
     job: {
-      name: string;
-      queue: string;
-      handler: (job: ExtJobData<D>, ctx: T & { addJob: (args: {name: string, queue: string, data?: unknown , options?: JobType<D>['options'] }) => void }) => void;
+      event: string;
+      queue?: string;
+      handler: (job: ExtJobData<D>, ctx: T & { emit: (args: {event: string, queue?: string, data?: unknown , options?: JobType<D>['options'] }) => void }) => void;
       options?: JobOptions;
     },
   ): void {
 
-   if(!job.name) {
-    throw new Error(`name is required`);
-   }
-   if(!job.queue) {
-    throw new Error(`queue is required`);
-   }
-    if(!job.handler) {
-      throw new Error(`handler is required`);
+    const { event:name, queue: queueName = 'unassigned' as string, handler, options } = job; // Changed 'unassigned' to 'unassigned'
+    
+    if(!name) {
+      throw new Error(`name is required`);
     }
-    const queueName = job.queue;
-    const jobName = job.name;
 
     let queue: Queue;
 
@@ -155,16 +163,23 @@ export class QueueManager<T = unknown> implements QueueManagerInterface<T> {
 
     for (const key in this.queues[queueName]) {
       if (job?.options?.repeat?.pattern) {
-        this.addJob({name: jobName, queue: queueName, data: {}, options: job.options});
+        this.emit({event: name, queue: queueName, data: {}, options: job.options});
       }
       continue;
     }
 
     this.handlers[queueName] = {
       ...this.handlers[queueName],
-      [jobName]: job.handler,
+      [name]: handler,
     } as unknown as { [key: string]: JobHandler<any> };
 
+    // If using default worker, don't create per-queue workers
+    if (this.useDefaultWorker) {
+      // Just register the handler, worker will be created in start()
+      return;
+    }
+
+    // Original behavior: create worker per queue
     const worker = queue.createWorker(async (jobData: JobData) => {
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
@@ -188,14 +203,13 @@ export class QueueManager<T = unknown> implements QueueManagerInterface<T> {
 
   /**
    * Adds a job to the queue
-   * @param name - Name of the job
-   * @param queue - Queue of the job
-   * @param description - Description of the job
+   * @param event - Event/name of the job
+   * @param queue - Queue of the job (optional, defaults to 'unassigned')
    * @param data - Data to pass to the job
    * @param options - Options for the job
    */
-  addJob(
-    args: {name: string, queue: string, data?: unknown , options?: JobType<any>['options'] },
+  emit(
+    args: {event: string, queue?: string, data?: unknown , options?: JobType<any>['options'] },
   ): void {
     const optionsLayer = {
       delayUntil: new Date(),
@@ -204,19 +218,19 @@ export class QueueManager<T = unknown> implements QueueManagerInterface<T> {
       repeatCount: 0,
     };
 
-    const { name, queue: queueName, data = {}, options = {} } = args;
+    const { event:name, queue: queueName = 'unassigned', data = {}, options = {} } = args; // Changed 'unassigned' to 'unassigned'
 
-    if (!name || !queueName) {
-      throw new Error('name and queueName are required');
+    if (!name) { // Remove queueName check since it has a default
+      throw new Error('event (name) is required');
     }
     const jobName = name;
     
     const queue = this.queues[queueName]?.queue;
 
     if (!queue) {
-      (async () => {
-        await this.deleteAllJobsUtil(queueName, 'all');
-      })();
+      // (async () => {
+      //   await this.deleteAllJobsUtil(queueName, 'all');
+      // })();
       throw new Error(`Queue ${queueName} not found`);
     }
 
@@ -242,22 +256,85 @@ export class QueueManager<T = unknown> implements QueueManagerInterface<T> {
   /**
    * Processes all jobs in the queue
    */
-  processJobs(): void {
-    for (const worker of Object.values(this.workers)) {
-      worker.processJobs();
+  start(): void {
+    if (this.useDefaultWorker) {
+      // Create default worker that processes all queues
+      const allQueueNames = Object.keys(this.queues);
+      
+      if (allQueueNames.length === 0) {
+        console.warn('No queues registered. Cannot start default worker.');
+        return;
+      }
+
+      // Create a unified handler that routes jobs to the correct handler
+      const unifiedHandler = async (jobData: JobData) => {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        if (!jobData.state.name || jobData.state.name === 'undefined') {
+          throw new Error(`job.state.name is undefined`);
+        }
+
+        const queueName = jobData.state.queue || 'unassigned'; // Changed 'unassigned' to 'unassigned'
+        const jobName = jobData.state.name;
+
+        // Better error handling - don't retry on configuration errors
+        if (!this.handlers[queueName]) {
+          const error = new Error(`No handlers registered for queue: ${queueName}`);
+          console.error(`Job ${jobData.id} failed:`, error.message);
+          // Don't throw - mark as failed without retry for config errors
+          throw error;
+        }
+
+        if (!this.handlers[queueName][jobName]) {
+          const error = new Error(`No handler found for queue: ${queueName}, event: ${jobName}. Registered events: ${Object.keys(this.handlers[queueName]).join(', ')}`);
+          console.error(`Job ${jobData.id} failed:`, error.message);
+          // Don't retry on missing handler - it's a configuration error
+          throw error;
+        }
+
+        // Create logger instance
+        const logger = await this.logger(jobData);
+
+        // Pass job state with logger to handler
+        return this.handlers[queueName][jobName]({
+          ...jobData.state,
+          logger,
+        }, this.ctx);
+      };
+
+      // Create default worker with all queue names
+      this.defaultWorker = new Worker(
+        this.db,
+        'unassigned', // Changed 'unassigned' to 'unassigned'
+        unifiedHandler as unknown as JobHandler<unknown>,
+        { concurrency: this.concurrency },
+        this.streamdb,
+        allQueueNames, // Pass all queue names for multi-queue processing
+      );
+
+      this.defaultWorker.processJobs();
+      console.log(`Default worker started with ${this.concurrency} concurrent workers processing ${allQueueNames.length} queues`);
+    } else {
+      // Original behavior: start all per-queue workers
+      for (const worker of Object.values(this.workers)) {
+        worker.processJobs();
+      }
     }
 
     // Trim jobs to keep the database size manageable
     this.trimJobs();
-    
   }
 
   /**
    * Stops all workers and closes the connection
    */
   shutdown(): void {
-    for (const worker of Object.values(this.workers)) {
-      worker.stopProcessing();
+    if (this.useDefaultWorker && this.defaultWorker) {
+      this.defaultWorker.stopProcessing();
+    } else {
+      for (const worker of Object.values(this.workers)) {
+        worker.stopProcessing();
+      }
     }
   }
 

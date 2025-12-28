@@ -1,13 +1,13 @@
 {
-  "name": "@leotermine/tempotask",
-  "version": "0.78.0",
+  "name": "@leotermine/tasker",
+  "version": "0.81.0",
   "description": "A simple and efficient job queue system for Deno. Built on Redis, it offers high-performance task scheduling and processing with Deno's modern runtime.",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/mirairoad/tempotask"
   },
-  "exports": ["./src/mod.ts"],
+  "exports": ["./mod.ts"],
   "imports": {
     "cron-schedule": "jsr:@p4sca1/cron-schedule@^5.0.3",
     "ioredis": "npm:ioredis@^5.6.1",
@@ -33,11 +33,11 @@
   },
   "lint": {
     "include": [
-      "core/",
-      "adapters/"
-    ],
+      "core_v2/"
+        ],
     "exclude": [
-      "examples/"
+      "examples/",
+      "core/"
     ],
     "rules": {
       "exclude": [
