@@ -1,6 +1,7 @@
 import { tempotask } from '../tempotask.plugin.ts';
 
 tempotask.registerHandler({
+  event: 'multi-jobs',
   handler: (job: any, ctx: any) => {
     console.log(
       '%c- runs every minute',
@@ -9,7 +10,6 @@ tempotask.registerHandler({
     setTimeout(() => {
     }, 5000);
   },
-  event: 'multi-jobs',
   options: {
     repeat: {
       pattern: '* * * * *',

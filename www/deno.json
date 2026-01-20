@@ -1,0 +1,28 @@
+{
+  "name": "@leotermine/remq-docs",
+  "version": "0.0.1",
+  "description": "Documentation for REMQ - Redis Enhanced Message Queue",
+  "license": "MIT",
+  "imports": {
+    "vitepress": "npm:vitepress@2.0.0-alpha.15",
+    "vue": "npm:vue@^3.5.27",
+    "@vitejs/plugin-vue": "npm:@vitejs/plugin-vue@^6.0.3",
+    "vite": "npm:vite@^7.3.1"
+  },
+  "exports": {
+    ".": "./.vitepress/config.ts"
+  },
+  "tasks": {
+    "dev": "deno run -A --node-modules-dir=auto --reload npm:vitepress@2.0.0-alpha.15 dev docs",
+    "build": "deno run -A --node-modules-dir=auto --reload npm:vitepress@2.0.0-alpha.15 build docs",
+    "preview": "deno run -A --node-modules-dir=auto --reload npm:vitepress@2.0.0-alpha.15 preview docs"
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 80,
+    "indentWidth": 2,
+    "singleQuote": true,
+    "proseWrap": "preserve",
+    "semiColons": true
+  }
+}

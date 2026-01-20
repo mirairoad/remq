@@ -1,4 +1,4 @@
-import { TaskManager } from '@core_v2/mod.ts';
+import { TaskManager } from '../core/libs/task-manager/mod.ts';
 import { Redis } from 'ioredis';
 
 // Create Redis Option
@@ -21,10 +21,11 @@ const streamdb = new Redis({ ...redisOption, db: redisOption.db + 1 });
 // define the context for the app SAMPLE you pass your own context to the tasker so it will be always available, otherwise it will be undefined
 const contextApp = {};
 
-// initialize the task manager (using new core_v2 API)
+// initialize the task manager (using new core API)
 const tempotask = TaskManager.init({
   db,
   streamdb, // Optional: separate connection for streams
+  expose: 4000,
   ctx: contextApp,
   concurrency: 1,
   processor: {

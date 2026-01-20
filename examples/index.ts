@@ -5,7 +5,7 @@ import './scheduler/start.ts';
 import './scheduler/onrequest.ts';
 
 
-console.log('🚚 tempotask is running with core_v2');
+console.log('🚚 tempotask is running with core');
 
 // Start processing jobs
 await tempotask.start();
