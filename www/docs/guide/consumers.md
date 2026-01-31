@@ -1,3 +1,8 @@
+---
+title: Consumers
+description: Process messages with REMQ consumers and error handling.
+---
+
 # Consumers
 
 Learn how to process messages with consumers in REMQ.

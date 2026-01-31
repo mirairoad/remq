@@ -2,7 +2,7 @@ import { Consumer } from '../consumer/consumer.ts';
 import type { ProcessorOptions, ProcessableMessage } from '../../types/processor.ts';
 import type { Message, MessageContext } from '../../types/message.ts';
 import { DebounceManager } from './debounce-manager.ts';
-import type { RedisConnection } from '../../../core/src/types/redis.ts';
+import type { RedisConnection } from '../../types/redis-client.ts';
 
 /**
  * Processor layer - wraps Consumer with policy logic (retries, delays, DLQ, debouncing)
@@ -123,7 +123,11 @@ export class Processor {
 
     // Send to DLQ if configured
     if (this.dlqConfig?.streamKey) {
-      await this.sendToDLQ(message, error, jobDataAny.retriedAttempts || 0);
+      const dlqAttempts = jobDataAny.retriedAttempts || 0;
+      const shouldSendToDLQ = this.dlqConfig.shouldSendToDLQ;
+      if (!shouldSendToDLQ || shouldSendToDLQ(message, error, dlqAttempts)) {
+        await this.sendToDLQ(message, error, dlqAttempts);
+      }
     }
 
     await ctx.ack();

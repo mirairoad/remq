@@ -1,3 +1,8 @@
+---
+title: Guide
+description: Learn core concepts and workflows for REMQ.
+---
+
 # Guide
 
 Welcome to the REMQ guide! Here you'll find everything you need to get started with Redis Enhanced Message Queue.

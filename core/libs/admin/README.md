@@ -17,7 +17,7 @@ Simple management API for jobs, designed for admin interfaces.
 ### Basic Setup
 
 ```typescript
-import { AdminStore } from '@core_v2/mod.ts';
+import { AdminStore } from '@core/mod.ts';
 import { Redis } from 'ioredis';
 
 const db = new Redis({
@@ -133,6 +133,15 @@ try {
 }
 ```
 
+## Types
+
+| Type | Purpose | Main fields |
+| --- | --- | --- |
+| `AdminJobData` | Stored job record | `id`, `state`, `status`, timestamps (`timestamp`, `lastRun`, `delayUntil`, `lockUntil`), `logs`, `errors`, `paused` |
+| `ListJobsOptions` | List/filter options for `listJobs` | `queue`, `status`, `limit`, `offset` |
+| `JobStats` | Per-queue status counts | `queue`, `waiting`, `processing`, `completed`, `failed`, `delayed`, `total` |
+| `QueueInfo` | Queue name + stats bundle | `name`, `stats` |
+
 ## API Reference
 
 ### `getJob(jobId: string, queue: string): Promise<AdminJobData | null>`
@@ -187,7 +196,10 @@ interface QueueInfo {
 
 ### `retryJob(jobId: string, queue: string): Promise<AdminJobData | null>`
 
-Retries a failed job. Returns the updated job data, or `null` if not found.
+Retries a job by recreating it as `waiting`, incrementing `retriedAttempts`, and
+adding a retry log entry. Returns the updated job data, or `null` if not found.
+
+Throws an error if the job status is not `failed` (only failed jobs can be retried).
 
 **Note:** The job will need to be re-emitted to the stream to be processed. This method only updates the Redis state.
 
@@ -197,12 +209,28 @@ Cancels a waiting or delayed job. Returns `true` if successful, `false` if job n
 
 Throws an error if trying to cancel a job that's not in waiting/delayed status.
 
+## Control Methods
+
+### `pauseQueue(queue: string): Promise<void>` / `resumeQueue(queue: string): Promise<void>` / `isQueuePaused(queue: string): Promise<boolean>`
+
+Pauses or resumes a queue by toggling a pause key in Redis. `isQueuePaused`
+returns `true` when the pause key exists.
+
+These methods do not throw if the queue is unknown.
+
+### `pauseJob(jobId: string, queue: string): Promise<AdminJobData | null>` / `resumeJob(jobId: string, queue: string): Promise<AdminJobData | null>`
+
+Pauses or resumes an individual job by toggling its `paused` flag. Returns the
+updated job or `null` if not found.
+
+`pauseJob` throws an error if the job status is not `waiting` or `delayed`.
+
 ## Integration with TaskManager
 
 You can use `AdminStore` alongside `TaskManager`:
 
 ```typescript
-import { TaskManager, AdminStore } from '@core_v2/mod.ts';
+import { TaskManager, AdminStore } from '@core/mod.ts';
 import { Redis } from 'ioredis';
 
 const db = new Redis({ port: 6379, host: 'localhost', db: 1 });

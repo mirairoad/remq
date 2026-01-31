@@ -18,6 +18,8 @@ Policy layer that wraps Consumer to add retries, delays, DLQ routing, and deboun
 - Routes failed messages to DLQ after retries exhausted
 - Configurable DLQ stream key
 - Custom DLQ routing logic
+  - `streamKey` is required to enable DLQ
+  - `shouldSendToDLQ` defaults to sending on the final failure (when retries are exhausted)
 
 ### 4. Debouncing (Optional) ⭐
 - **Optional feature** - prevents duplicate message processing within a time window
@@ -46,6 +48,39 @@ const processor = new Processor({
     concurrency: 5,
   },
   streamdb: redisClient,
+});
+
+await processor.start();
+```
+
+### Minimal Full Example (Consumer + Retry + DLQ + Debounce)
+
+```typescript
+const processor = new Processor({
+  consumer: {
+    streams: ['orders-stream'],
+    streamdb: redisClient,
+    handler: async (message, ctx) => {
+      await handleOrder(message.data);
+      await ctx.ack();
+    },
+    concurrency: 10,
+  },
+  streamdb: redisClient,
+  retry: {
+    maxRetries: 5,
+    retryDelayMs: 2000,
+  },
+  dlq: {
+    streamKey: 'orders-dlq',
+  },
+  debounce: {
+    debounce: 300,
+    keyFn: (message) => {
+      const data = message.data as { orderId?: string };
+      return data.orderId ?? message.id;
+    },
+  },
 });
 
 await processor.start();
@@ -146,7 +181,7 @@ const processor = new Processor({
     retryDelayMs: 1000,
   },
   dlq: {
-    streamKey: 'my-queue-dlq', // Failed messages go here
+    streamKey: 'my-queue-dlq', // Required to enable DLQ
     shouldSendToDLQ: (message, error, attempts) => {
       // Only send to DLQ if we've tried at least 3 times
       return attempts >= 3;
@@ -154,6 +189,10 @@ const processor = new Processor({
   },
 });
 ```
+
+**Defaults:**
+- If `dlq.streamKey` is not set, DLQ routing is disabled.
+- If `dlq.shouldSendToDLQ` is not set, the processor sends to DLQ when retries are exhausted.
 
 ### Complete Example (All Features)
 
@@ -280,4 +319,3 @@ Processor wraps Consumer and delegates all runtime concerns to it:
 - Processor handles: retries, delays, DLQ, debouncing
 
 You can access the underlying Consumer via `processor.getConsumer()` for advanced use cases.
-

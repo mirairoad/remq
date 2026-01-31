@@ -99,7 +99,7 @@ taskManager.emit({
 ## Complete Example
 
 ```typescript
-import { TaskManager } from '@core_v2/libs/task-manager/mod.ts';
+import { TaskManager } from '@core/mod.ts';
 import { Redis } from 'ioredis';
 
 const db = new Redis({ port: 6379, host: 'localhost', db: 1 });
@@ -138,4 +138,3 @@ taskManager.emit({
   data: { taskId: '123' },
 });
 ```
-

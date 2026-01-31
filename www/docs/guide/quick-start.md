@@ -1,3 +1,8 @@
+---
+title: Quick Start
+description: Install REMQ and schedule your first task.
+---
+
 # Quick Start
 
 Get up and running with REMQ in minutes.

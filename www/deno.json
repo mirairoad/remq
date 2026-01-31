@@ -4,10 +4,16 @@
   "description": "Documentation for REMQ - Redis Enhanced Message Queue",
   "license": "MIT",
   "imports": {
+    "@std/assert": "jsr:@std/assert@^1.0.0",
     "vitepress": "npm:vitepress@2.0.0-alpha.15",
     "vue": "npm:vue@^3.5.27",
     "@vitejs/plugin-vue": "npm:@vitejs/plugin-vue@^6.0.3",
     "vite": "npm:vite@^7.3.1"
+  },
+  "lint": {
+    "exclude": [
+      ".vitepress/"
+    ]
   },
   "exports": {
     ".": "./.vitepress/config.ts"

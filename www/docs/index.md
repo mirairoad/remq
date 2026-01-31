@@ -1,6 +1,8 @@
 ---
 layout: home
 navbar: true
+title: REMQ
+description: REMQ documentation for getting started, guides, and API reference.
 
 hero:
   name: 'REMQ'

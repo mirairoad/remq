@@ -83,7 +83,8 @@ export interface DLQConfig {
 
   /**
    * Function to determine if message should go to DLQ
-   * @default sends to DLQ when retries exhausted
+   * Only evaluated when streamKey is set
+   * @default sends to DLQ when retries are exhausted
    */
   shouldSendToDLQ?: (message: ProcessableMessage, error: Error, attempts: number) => boolean;
 }
@@ -125,4 +126,3 @@ export interface ProcessorOptions {
    */
   ignoreConfigErrors?: boolean;
 }
-

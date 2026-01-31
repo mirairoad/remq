@@ -1,3 +1,8 @@
+---
+title: Task Management
+description: Define jobs, schedules, and retries with TaskManager.
+---
+
 # Task Management
 
 Learn how to manage tasks in REMQ.

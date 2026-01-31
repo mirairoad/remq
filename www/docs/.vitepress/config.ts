@@ -6,7 +6,7 @@ export default defineConfig({
   description:
     'Redis Enhanced Message Queue - A high-performance message queue system for Deno',
   base: '/',
-
+  head: [['link', { rel: 'icon', href: '/favicon.ico' }]],
   themeConfig: {
     // https://vitepress.dev/reference/default-theme-config
     logo: '/logo.png',
@@ -27,6 +27,16 @@ export default defineConfig({
     ],
 
     sidebar: {
+      '/getting-started/': [
+        {
+          text: 'Getting Started',
+          items: [
+            { text: 'Introduction', link: '/' },
+            { text: 'Installation', link: '/getting-started/installation' },
+            { text: 'Quick Start', link: '/guide/quick-start' },
+          ],
+        },
+      ],
       '/guide/': [
         {
           text: 'Getting Started',
@@ -52,6 +62,7 @@ export default defineConfig({
             { text: 'TaskManager', link: '/reference/task-manager' },
             { text: 'Consumer', link: '/reference/consumer' },
             { text: 'Processor', link: '/reference/processor' },
+            { text: 'Admin / AdminStore', link: '/reference/admin-store' },
           ],
         },
       ],
@@ -65,8 +76,7 @@ export default defineConfig({
 
     footer: {
       message: 'Released under the MIT License.',
-      copyright: 'Copyright © 2024',
+      // copyright: 'Copyright © 2024',
     },
   },
 });
-

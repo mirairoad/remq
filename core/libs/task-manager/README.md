@@ -178,8 +178,16 @@ Emit/trigger a job/event.
 **Args:**
 - `event: string` - Event name
 - `queue?: string` - Queue name (defaults to 'default')
-- `data?: unknown` - Job data
-- `options?: { id?, priority?, delayUntil?, retryCount?, repeat?, attempts? }` - Job options
+- `data?: unknown` - Job data (defaults to `{}`)
+- `options?: { ... }` - Job options:
+  - `id?: string` - Custom job id (defaults to hash of event + data)
+  - `priority?: number` - Higher values process first (default: `0`)
+  - `delayUntil?: Date` - When the job becomes eligible
+  - `retryCount?: number` - Initial retry budget
+  - `retryDelayMs?: number` - Delay between retries (default: `1000`)
+  - `repeat?: { pattern: string }` - Cron pattern (e.g. `"0 * * * *"`)
+  - `attempts?: number` - Shorthand for `retryCount`
+  - `debounce?: number` - Debounce window in milliseconds
 
 ### `start()`
 
@@ -192,6 +200,102 @@ Stop processing jobs. Waits for active tasks to complete.
 ### `getContext()`
 
 Get the context object (useful for accessing emit function outside handlers).
+
+## Types
+
+### `TaskHandler<T, D>`
+
+Handler function invoked for each job.
+
+**Parameters:**
+- `job.name: string` - Event/job name
+- `job.queue: string` - Queue name the job came from
+- `job.data?: D` - Job payload (optional)
+- `job.logger?: (message: string | object) => Promise<void>` - Logger that writes to job logs (optional)
+- `ctx: T & { emit: EmitFunction }` - Your context plus `emit` for enqueueing follow-up jobs
+
+**Defaults:**
+- Generic defaults: `T = unknown`, `D = unknown`
+- `job.data` and `job.logger` are optional
+
+**Where used:**
+- Passed to `registerHandler()` and stored per `queue:event`
+- Invoked inside TaskManager when processing messages in `processJob()`
+
+### `EmitFunction`
+
+Function for emitting a new job/event.
+
+**Parameters:**
+- `event: string` - Event/job name (required)
+- `queue?: string` - Queue name (defaults to `'default'`)
+- `data?: unknown` - Job payload (defaults to `{}`)
+- `options?: { ... }`:
+  - `id?: string` - Custom job id (defaults to hash of event + data)
+  - `priority?: number` - Higher values process first (default: `0`)
+  - `delayUntil?: Date` - When the job becomes eligible
+  - `retryCount?: number` - Initial retry budget
+  - `retryDelayMs?: number` - Delay between retries (default: `1000`)
+  - `repeat?: { pattern: string }` - Cron pattern (e.g. `"0 * * * *"`)
+  - `attempts?: number` - Shorthand for `retryCount`
+  - `debounce?: number` - Debounce window in milliseconds
+
+**Defaults (applied in `TaskManager.emit()`):**
+- `queue` defaults to `'default'`
+- `data` defaults to `{}`
+- `options` defaults to `{}`
+- `options.id` defaults to `genJobIdSync(event, data)`
+- `options.priority` defaults to `0`
+- `options.retryCount` defaults to `options.attempts ?? 0`
+- `options.retryDelayMs` defaults to `1000`
+- `options.delayUntil` defaults to `new Date()`, or next cron occurrence when `repeat.pattern` is set
+
+**Where used:**
+- Exposed as `TaskManager.emit()` and injected into handler context (`ctx.emit`)
+- Also called internally when `registerHandler()` is given a `repeat.pattern`
+
+### `TaskManagerOptions<T>`
+
+Options for `TaskManager.init()`.
+
+**Parameters:**
+- `db: RedisConnection` - Redis connection for job storage (required)
+- `expose?: number` - Port to expose a task-manager API (default: `4000`)
+- `ctx?: T` - Context object passed to handlers
+- `concurrency?: number` - Number of concurrent jobs (default: `1`)
+- `streamdb?: RedisConnection` - Optional Redis connection for streams (defaults to `db`)
+- `processor?: { retry?, dlq?, debounce?, ignoreConfigErrors? }` - Processor policy options
+
+**Defaults (applied in constructor):**
+- `concurrency` defaults to `1`
+- `streamdb` defaults to `db`
+- `processor` defaults to `{}` when omitted
+- `ctx` defaults to `{}` and is augmented with `emit`
+
+**Where used:**
+- Stored in TaskManager constructor
+- `concurrency` passed into `Processor` consumer options
+- `streamdb` used by `emit()` and `ensureConsumerGroup()`
+- `processor` spread into `new Processor(...)` in `createUnifiedProcessor()`
+- `expose` is currently reserved (not read by TaskManager)
+
+### `RegisterHandlerOptions<T, D>`
+
+Options for `TaskManager.registerHandler()`.
+
+**Parameters:**
+- `handler: TaskHandler<T, D>` - Handler function (required)
+- `event: string` - Event/job name (required)
+- `queue?: string` - Queue name (defaults to `'default'`)
+- `options?: { repeat?, attempts?, debounce?, ... }` - Job options (cron/repeat and debounce)
+
+**Defaults:**
+- `queue` defaults to `'default'`
+
+**Where used:**
+- Handler is stored under `${queue}:${event}`
+- `options.debounce` creates a per-handler `DebounceManager`
+- `options.repeat.pattern` triggers an initial `emit()` to seed cron jobs
 
 ## Integration with Consumer + Processor
 
@@ -216,4 +320,3 @@ Consumer (Runtime engine: fetch, process, ack, events)
   ↓
 Redis Streams
 ```
-

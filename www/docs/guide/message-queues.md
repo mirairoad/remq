@@ -1,3 +1,8 @@
+---
+title: Message Queues
+description: Understand queues, streams, and message flow in REMQ.
+---
+
 # Message Queues
 
 Understanding how message queues work in REMQ.

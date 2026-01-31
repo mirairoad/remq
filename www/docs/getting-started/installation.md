@@ -1,8 +1,13 @@
+---
+title: Installation
+description: Prerequisites and install steps for REMQ and Redis.
+---
+
 # Installation
 
 ## Prerequisites
 
-- Deno 1.40 or higher
+- Deno 2.5 or higher
 - Redis server running
 
 ## Install
@@ -37,5 +42,5 @@ sudo systemctl start redis
 
 ## Next Steps
 
-- [Getting Started Guide](../)
-- [Examples](../../examples)
+- [Introduction](/) - Overview and features
+- [Quick Start](/guide/quick-start) - Run your first task

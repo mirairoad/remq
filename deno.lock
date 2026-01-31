@@ -2,6 +2,8 @@
   "version": "5",
   "specifiers": {
     "jsr:@p4sca1/cron-schedule@^5.0.3": "5.0.3",
+    "jsr:@std/assert@1": "1.0.17",
+    "jsr:@std/internal@^1.0.12": "1.0.12",
     "npm:@vitejs/plugin-vue@^6.0.3": "6.0.3_vite@7.3.1__picomatch@4.0.3_vue@3.5.27",
     "npm:ioredis@^5.5.0": "5.9.2",
     "npm:ioredis@^5.6.1": "5.9.2",
@@ -13,6 +15,15 @@
   "jsr": {
     "@p4sca1/cron-schedule@5.0.3": {
       "integrity": "8272d8afe9169f38d870e66c59da9b1173fd9c644293f26d8e5e0b20d88cbf1f"
+    },
+    "@std/assert@1.0.17": {
+      "integrity": "df5ebfffe77c03b3fa1401e11c762cc8f603d51021c56c4d15a8c7ab45e90dbe",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
+    },
+    "@std/internal@1.0.12": {
+      "integrity": "972a634fd5bc34b242024402972cd5143eac68d8dffaca5eaa4dba30ce17b027"
     }
   },
   "npm": {
@@ -1652,6 +1663,7 @@
       },
       "www": {
         "dependencies": [
+          "jsr:@std/assert@1",
           "npm:@vitejs/plugin-vue@^6.0.3",
           "npm:vite@^7.3.1",
           "npm:vitepress@2.0.0-alpha.15",
