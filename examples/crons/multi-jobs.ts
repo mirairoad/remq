@@ -2,7 +2,7 @@ import { remq } from '../remq.plugin.ts';
 
 remq.registerHandler({
   event: 'multi-jobs',
-  handler: (job: any, ctx: any) => {
+  handler: (task, ctx) => {
     console.log(
       '%c- runs every minute',
       'color: white; background-color: blue;',

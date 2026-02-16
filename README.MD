@@ -115,3 +115,8 @@ Examples in `examples/`:
 | [`scheduler/start.ts`](examples/scheduler/start.ts) | Scheduler flow with cron pattern |
 | [`scheduler/onrequest.ts`](examples/scheduler/onrequest.ts) | On-request handler with retries |
 | [`crons/hello-world.ts`](examples/crons/hello-world.ts), [`crons/multi-jobs.ts`](examples/crons/multi-jobs.ts) | Cron jobs |
+
+## Upcoming
+
+- **WS connection for remote processor** — WebSocket connection to run the processor remotely. Use a single powerful machine (e.g. 8 cores) as the worker; many clients connect over WS and only trigger events. No need to run the full stack on each client.
+- **Job progressive status** — Keeps the client in sync with job progress in real time. Ideal for uploads and long-running tasks: show a percentage and completed steps. Users stay informed without blocking or polling.

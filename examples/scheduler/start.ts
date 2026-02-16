@@ -7,7 +7,7 @@ type DataStructure = {
 };
 
 remq.registerHandler({
-  handler: async (job, ctx) => {
+  handler: async (task, ctx) => {
     console.log(
       '%c- runs every 30 seconds',
       'color: white; background-color: yellow;',
@@ -39,7 +39,7 @@ remq.registerHandler({
           id: `on-request-${i}`,
         },
       });
-      await job.logger?.(`added job on-request-${i}`);
+      await task.logger?.(`added task on-request-${i}`);
     }
   },
   event: 'start',

@@ -7,7 +7,7 @@ import type { RedisConnection } from '../../types/redis-client.ts';
 /**
  * Processor layer - wraps Consumer with policy logic (retries, delays, DLQ, debouncing)
  * 
- * Based on old worker's processJobItem logic for handling delays
+ * Based on old worker's processTaskItem logic for handling delays
  */
 export class Processor {
   private readonly consumer: Consumer;
@@ -45,7 +45,7 @@ export class Processor {
 
   /**
    * Creates a wrapped handler that applies processor policies
-   * Based on old worker's processJobItem logic for delays
+   * Based on old worker's processTaskItem logic for delays
    */
   private createWrappedHandler(
     originalHandler: ProcessorOptions['consumer']['handler'],
@@ -61,7 +61,7 @@ export class Processor {
         }
       }
 
-      // 2. Check delayUntil (like old worker processJobItem line 165-209)
+      // 2. Check delayUntil (like old worker processTaskItem line 165-209)
       const delayUntil = (processableMessage.data as any)?.delayUntil;
       if (delayUntil && typeof delayUntil === 'number') {
         const now = Date.now();
@@ -95,14 +95,14 @@ export class Processor {
     error: Error,
     ctx: MessageContext,
   ): Promise<void> {
-    const jobDataAny = message.data as any;
-    const retryCount = jobDataAny.retryCount ?? 0;
+    const taskDataAny = message.data as any;
+    const retryCount = taskDataAny.retryCount ?? 0;
     const maxRetries = this.retryConfig?.maxRetries ?? 0;
-    const retryDelayMs = jobDataAny.retryDelayMs ?? this.retryConfig?.retryDelayMs ?? 1000;
+    const retryDelayMs = taskDataAny.retryDelayMs ?? this.retryConfig?.retryDelayMs ?? 1000;
 
     // Check if should retry
     const shouldRetry = retryCount > 0 && maxRetries > 0;
-    const attempts = (jobDataAny.retriedAttempts || 0) + 1;
+    const attempts = (taskDataAny.retriedAttempts || 0) + 1;
     
     if (shouldRetry && (!this.retryConfig?.shouldRetry || this.retryConfig.shouldRetry(error, attempts))) {
       // Re-queue with retry
@@ -111,7 +111,7 @@ export class Processor {
         data: {
           ...message.data,
           retryCount: retryCount - 1,
-          retriedAttempts: (jobDataAny.retriedAttempts || 0) + 1,
+          retriedAttempts: (taskDataAny.retriedAttempts || 0) + 1,
           delayUntil: Date.now() + retryDelayMs,
         },
       };
@@ -123,7 +123,7 @@ export class Processor {
 
     // Send to DLQ if configured
     if (this.dlqConfig?.streamKey) {
-      const dlqAttempts = jobDataAny.retriedAttempts || 0;
+      const dlqAttempts = taskDataAny.retriedAttempts || 0;
       const shouldSendToDLQ = this.dlqConfig.shouldSendToDLQ;
       if (!shouldSendToDLQ || shouldSendToDLQ(message, error, dlqAttempts)) {
         await this.sendToDLQ(message, error, dlqAttempts);

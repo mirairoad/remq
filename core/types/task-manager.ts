@@ -5,7 +5,7 @@ import type { ProcessorOptions } from './processor.ts';
  * Handler function signature
  */
 export interface TaskHandler<T = unknown, D = unknown> {
-  (job: {
+  (task: {
     name: string;
     queue: string;
     data?: D;
@@ -14,7 +14,7 @@ export interface TaskHandler<T = unknown, D = unknown> {
 }
 
 /**
- * Emit function for triggering new jobs
+ * Emit function for triggering new tasks
  */
 export interface EmitFunction {
   (args: {
@@ -41,7 +41,7 @@ export interface EmitFunction {
  */
 export interface TaskManagerOptions<T = unknown> {
   /**
-   * Redis connection for job storage
+   * Redis connection for task storage
    */
   db: RedisConnection;
 
@@ -57,7 +57,7 @@ export interface TaskManagerOptions<T = unknown> {
   ctx?: T;
 
   /**
-   * Number of concurrent jobs to process
+   * Number of concurrent tasks to process
    * @default 1
    */
   concurrency?: number;
@@ -89,7 +89,7 @@ export interface RegisterHandlerOptions<T = unknown, D = unknown> {
   handler: TaskHandler<T, D>;
 
   /**
-   * Event/Job name
+   * Event/Task name
    */
   event: string;
 
@@ -99,7 +99,7 @@ export interface RegisterHandlerOptions<T = unknown, D = unknown> {
   queue?: string;
 
   /**
-   * Job options (for cron/repeatable jobs)
+   * Task options (for cron/repeatable tasks)
    */
   options?: {
     repeat?: {

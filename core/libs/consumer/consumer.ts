@@ -6,7 +6,7 @@ import { ConcurrencyPool } from './concurrency-pool.ts';
 /**
  * Consumer - Runtime engine for processing messages from Redis Streams
  * 
- * Based on old worker's robust processJobsLoop logic
+ * Based on old worker's robust processTasksLoop logic
  */
 export class Consumer extends EventTarget {
   private readonly streamdb: ConsumerOptions['streamdb'];
@@ -21,7 +21,7 @@ export class Consumer extends EventTarget {
   #isProcessing = false;
   #processingController = new AbortController();
   #processingFinished: Promise<void> = Promise.resolve();
-  readonly #activeJobs = new Set<Promise<void>>(); // Like old worker line 63
+  readonly #activeTasks = new Set<Promise<void>>(); // Like old worker line 63
 
   constructor(options: ConsumerOptions) {
     super();
@@ -73,7 +73,7 @@ export class Consumer extends EventTarget {
   }
 
   /**
-   * Starts processing messages (like old worker processJobs)
+   * Starts processing messages (like old worker processTasks)
    */
   async start(options: { signal?: AbortSignal } = {}): Promise<void> {
     const { signal } = options;
@@ -85,7 +85,7 @@ export class Consumer extends EventTarget {
   }
 
   /**
-   * Main processing loop (copied from old worker processJobsLoop)
+   * Main processing loop (copied from old worker processTasksLoop)
    */
   async #processLoop(
     options: { signal?: AbortSignal; controller: AbortController },
@@ -130,9 +130,9 @@ export class Consumer extends EventTarget {
             }
 
             // Wait if we've hit concurrency limit (like old worker line 153-163)
-            while (this.#activeJobs.size >= this.concurrencyPool.maxConcurrency) {
+            while (this.#activeTasks.size >= this.concurrencyPool.maxConcurrency) {
               await Promise.race([
-                Promise.race(this.#activeJobs),
+                Promise.race(this.#activeTasks),
                 this.delay(this.pollIntervalMs),
               ]);
 
@@ -142,7 +142,7 @@ export class Consumer extends EventTarget {
             }
 
             // Create a promise for this message's processing (like old worker line 212-225)
-            const jobPromise = (async () => {
+            const taskPromise = (async () => {
               try {
                 await this.#processMessage(message);
               } catch (error) {
@@ -150,12 +150,12 @@ export class Consumer extends EventTarget {
               }
             })();
 
-            // Track the active job (like old worker line 224)
-            this.#activeJobs.add(jobPromise);
-            
+            // Track the active task (like old worker line 224)
+            this.#activeTasks.add(taskPromise);
+
             // Remove from tracking when done
-            jobPromise.finally(() => {
-              this.#activeJobs.delete(jobPromise);
+            taskPromise.finally(() => {
+              this.#activeTasks.delete(taskPromise);
             });
           }
         } catch (error) {
@@ -227,18 +227,18 @@ export class Consumer extends EventTarget {
   }
 
   /**
-   * Set of currently running jobs
+   * Set of currently running tasks
    */
-  get activeJobs(): Set<Promise<void>> {
-    return this.#activeJobs;
+  get activeTasks(): Set<Promise<void>> {
+    return this.#activeTasks;
   }
 
   /**
    * Waits for all active tasks to complete
    */
   async waitForActiveTasks(): Promise<void> {
-    if (this.#activeJobs.size > 0) {
-      await Promise.all(this.#activeJobs);
+    if (this.#activeTasks.size > 0) {
+      await Promise.all(this.#activeTasks);
     }
   }
 

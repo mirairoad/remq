@@ -53,7 +53,7 @@ export class TaskManager<T = unknown> {
   }
 
   /**
-   * Register a handler for an event/job
+   * Register a handler for an event/task
    */
   async registerHandler<D = unknown>(
     options: {
@@ -113,7 +113,7 @@ export class TaskManager<T = unknown> {
   }
 
   /**
-   * Emit/trigger a job/event
+   * Emit/trigger a task/event
    */
   emit(args: {
     event: string;
@@ -327,8 +327,8 @@ export class TaskManager<T = unknown> {
         }
         // Mark as processed after handler completes
         const originalHandler = handler;
-        const wrappedHandler = async (job: any, ctx: any) => {
-          await originalHandler(job, ctx);
+        const wrappedHandler = async (task: any, ctx: any) => {
+          await originalHandler(task, ctx);
           debounceManager.markProcessed(processableMessage as { id: string; data?: unknown; [key: string]: unknown });
         };
         await this.processJob(jobData, jobId, queueName, state, stateAny, wrappedHandler, processableMessage);
@@ -352,7 +352,7 @@ export class TaskManager<T = unknown> {
   }
 
   /**
-   * Process a job (copied from old worker #processJob - robust logic)
+   * Process a task (copied from old worker #processJob - robust logic)
    */
   private async processJob(
     jobEntry: any, // JobData from message

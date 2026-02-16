@@ -1,13 +1,13 @@
 import { remq } from '../remq.plugin.ts';
 
 remq.registerHandler({
-  handler: async (job: any, ctx: any) => {
+  handler: async (task, ctx) => {
     console.log(
       '%c- runs on request',
       'color: white; background-color: green;',
     );
-    console.log(job.data);
-    await job.logger?.('testing the logger');
+    console.log(task.data);
+    await task.logger?.('testing the logger');
     // randomly throw an error
     if (Math.random() > 0.5) {
       throw new Error('random error');

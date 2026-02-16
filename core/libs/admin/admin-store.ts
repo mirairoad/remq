@@ -2,9 +2,9 @@ import type { RedisConnection } from '../../types/index.ts';
 import type { AdminJobData, ListJobsOptions, JobStats, QueueInfo } from '../../types/admin.ts';
 
 /**
- * AdminStore - Management API for jobs
- * 
- * Provides simple CRUD operations for job management in admin interfaces
+ * AdminStore - Management API for tasks
+ *
+ * Provides simple CRUD operations for task management in admin interfaces
  */
 export class AdminStore {
   private readonly db: RedisConnection;
@@ -14,36 +14,36 @@ export class AdminStore {
   }
 
   /**
-   * Get a job by ID and queue
+   * Get a task by ID and queue
    */
-  async getJob(jobId: string, queue: string): Promise<AdminJobData | null> {
-    // Try to find job by checking all possible statuses
+  async getTask(taskId: string, queue: string): Promise<AdminJobData | null> {
+    // Try to find task by checking all possible statuses
     const statuses: AdminJobData['status'][] = ['waiting', 'processing', 'completed', 'failed', 'delayed'];
-    
+
     for (const status of statuses) {
-      const key = `queues:${queue}:${jobId}:${status}`;
+      const key = `queues:${queue}:${taskId}:${status}`;
       const data = await this.db.get(key);
-      
+
       if (data) {
         try {
-          const jobData = JSON.parse(data) as AdminJobData;
+          const taskData = JSON.parse(data) as AdminJobData;
           // Ensure status is set correctly
-          jobData.status = status;
-          return jobData;
+          taskData.status = status;
+          return taskData;
         } catch (error) {
-          console.error(`Error parsing job data for ${key}:`, error);
+          console.error(`Error parsing task data for ${key}:`, error);
           return null;
         }
       }
     }
-    
+
     return null;
   }
 
   /**
-   * List jobs with optional filtering
+   * List tasks with optional filtering
    */
-  async listJobs(options: ListJobsOptions = {}): Promise<AdminJobData[]> {
+  async listTasks(options: ListJobsOptions = {}): Promise<AdminJobData[]> {
     const {
       queue,
       status,
@@ -51,12 +51,12 @@ export class AdminStore {
       offset = 0,
     } = options;
 
-    const jobs: AdminJobData[] = [];
+    const tasks: AdminJobData[] = [];
 
     // If queue is specified, search only that queue
     // Otherwise, we'd need to scan all queues (more expensive)
     if (!queue) {
-      throw new Error('queue is required for listJobs');
+      throw new Error('queue is required for listTasks');
     }
 
     const statuses: AdminJobData['status'][] = status
@@ -66,7 +66,7 @@ export class AdminStore {
     // For each status, scan keys matching pattern
     for (const statusType of statuses) {
       const pattern = `queues:${queue}:*:${statusType}`;
-      
+
       // Use SCAN to find matching keys (more efficient than KEYS for production)
       let cursor = '0';
       do {
@@ -77,47 +77,47 @@ export class AdminStore {
           'COUNT',
           100,
         ) as [string, string[]];
-        
+
         cursor = nextCursor;
-        
-        // Fetch job data for each key
+
+        // Fetch task data for each key
         for (const key of keys) {
           try {
             const data = await this.db.get(key);
             if (data) {
-              const jobData = JSON.parse(data) as AdminJobData;
-              jobData.status = statusType; // Ensure status is set correctly
-              jobs.push(jobData);
+              const taskData = JSON.parse(data) as AdminJobData;
+              taskData.status = statusType; // Ensure status is set correctly
+              tasks.push(taskData);
             }
           } catch (error) {
-            console.error(`Error parsing job data for ${key}:`, error);
+            console.error(`Error parsing task data for ${key}:`, error);
           }
         }
       } while (cursor !== '0');
     }
 
     // Sort by timestamp (newest first)
-    jobs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    tasks.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
     // Apply offset and limit
-    return jobs.slice(offset, offset + limit);
+    return tasks.slice(offset, offset + limit);
   }
 
   /**
-   * Delete a job (removes from Redis)
+   * Delete a task (removes from Redis)
    */
-  async deleteJob(jobId: string, queue: string): Promise<void> {
+  async deleteTask(taskId: string, queue: string): Promise<void> {
     const statuses: AdminJobData['status'][] = ['waiting', 'processing', 'completed', 'failed', 'delayed'];
-    
-    // Delete all status keys for this job
+
+    // Delete all status keys for this task
     const keysToDelete: string[] = [];
-    
+
     for (const status of statuses) {
-      keysToDelete.push(`queues:${queue}:${jobId}:${status}`);
+      keysToDelete.push(`queues:${queue}:${taskId}:${status}`);
     }
-    
-    // Also delete log keys (pattern: queues:queue:jobId:logs:*)
-    const logPattern = `queues:${queue}:${jobId}:logs:*`;
+
+    // Also delete log keys (pattern: queues:queue:taskId:logs:*)
+    const logPattern = `queues:${queue}:${taskId}:logs:*`;
     let cursor = '0';
     do {
       const [nextCursor, keys] = await this.db.scan(
@@ -139,7 +139,7 @@ export class AdminStore {
   }
 
   /**
-   * Get job statistics for a queue
+   * Get task statistics for a queue
    */
   async getQueueStats(queue: string): Promise<JobStats> {
     const statuses: AdminJobData['status'][] = ['waiting', 'processing', 'completed', 'failed', 'delayed'];
@@ -197,7 +197,7 @@ export class AdminStore {
       
       cursor = nextCursor;
       
-      // Extract queue names from keys (queues:queueName:jobId:status)
+      // Extract queue names from keys (queues:queueName:taskId:status)
       for (const key of keys) {
         const parts = key.split(':');
         if (parts.length >= 2 && parts[0] === 'queues') {
@@ -228,73 +228,73 @@ export class AdminStore {
   }
 
   /**
-   * Retry a failed job
+   * Retry a failed task
    */
-  async retryJob(jobId: string, queue: string): Promise<AdminJobData | null> {
-    const job = await this.getJob(jobId, queue);
-    
-    if (!job) {
+  async retryTask(taskId: string, queue: string): Promise<AdminJobData | null> {
+    const task = await this.getTask(taskId, queue);
+
+    if (!task) {
       return null;
     }
-    
-    if (job.status !== 'failed') {
-      throw new Error(`Cannot retry job with status: ${job.status}. Only failed jobs can be retried.`);
+
+    if (task.status !== 'failed') {
+      throw new Error(`Cannot retry task with status: ${task.status}. Only failed tasks can be retried.`);
     }
-    
-    // Create a new job with same data but reset status
-    const newJobData: AdminJobData = {
-      ...job,
+
+    // Create a new task with same data but reset status
+    const newTaskData: AdminJobData = {
+      ...task,
       status: 'waiting',
-      retriedAttempts: job.retriedAttempts + 1,
+      retriedAttempts: task.retriedAttempts + 1,
       timestamp: Date.now(),
       delayUntil: Date.now(),
       lockUntil: Date.now(),
       logs: [
-        ...job.logs,
+        ...task.logs,
         {
-          message: `Job retried (attempt ${job.retriedAttempts + 1})`,
+          message: `Task retried (attempt ${task.retriedAttempts + 1})`,
           timestamp: Date.now(),
         },
       ],
     };
-    
+
     // Delete old failed status
-    await this.db.del(`queues:${queue}:${jobId}:failed`);
-    
+    await this.db.del(`queues:${queue}:${taskId}:failed`);
+
     // Store as waiting
-    const waitingKey = `queues:${queue}:${jobId}:waiting`;
-    await this.db.set(waitingKey, JSON.stringify(newJobData));
-    
+    const waitingKey = `queues:${queue}:${taskId}:waiting`;
+    await this.db.set(waitingKey, JSON.stringify(newTaskData));
+
     // Also add to stream so it gets processed
     // Note: This requires access to streamdb, which we don't have here
-    // For now, just update the status. The job will need to be re-emitted via TaskManager
-    
-    return newJobData;
+    // For now, just update the status. The task will need to be re-emitted via TaskManager
+
+    return newTaskData;
   }
 
   /**
-   * Cancel a job (delete if waiting/delayed, or mark for cancellation if processing)
+   * Cancel a task (delete if waiting/delayed, or mark for cancellation if processing)
    */
-  async cancelJob(jobId: string, queue: string): Promise<boolean> {
-    const job = await this.getJob(jobId, queue);
-    
-    if (!job) {
+  async cancelTask(taskId: string, queue: string): Promise<boolean> {
+    const task = await this.getTask(taskId, queue);
+
+    if (!task) {
       return false;
     }
-    
-    // Can only cancel waiting or delayed jobs
-    if (job.status !== 'waiting' && job.status !== 'delayed') {
-      throw new Error(`Cannot cancel job with status: ${job.status}. Only waiting or delayed jobs can be cancelled.`);
+
+    // Can only cancel waiting or delayed tasks
+    if (task.status !== 'waiting' && task.status !== 'delayed') {
+      throw new Error(`Cannot cancel task with status: ${task.status}. Only waiting or delayed tasks can be cancelled.`);
     }
-    
-    // Simply delete the job
-    await this.deleteJob(jobId, queue);
-    
+
+    // Simply delete the task
+    await this.deleteTask(taskId, queue);
+
     return true;
   }
 
   /**
-   * Pause a queue (stops processing new jobs from this queue)
+   * Pause a queue (stops processing new tasks from this queue)
    */
   async pauseQueue(queue: string): Promise<void> {
     const pausedKey = `queues:${queue}:paused`;
@@ -302,7 +302,7 @@ export class AdminStore {
   }
 
   /**
-   * Resume a queue (resumes processing jobs from this queue)
+   * Resume a queue (resumes processing tasks from this queue)
    */
   async resumeQueue(queue: string): Promise<void> {
     const pausedKey = `queues:${queue}:paused`;
@@ -319,51 +319,51 @@ export class AdminStore {
   }
 
   /**
-   * Pause an individual job (only works for waiting/delayed jobs)
+   * Pause an individual task (only works for waiting/delayed tasks)
    */
-  async pauseJob(jobId: string, queue: string): Promise<AdminJobData | null> {
-    const job = await this.getJob(jobId, queue);
-    
-    if (!job) {
+  async pauseTask(taskId: string, queue: string): Promise<AdminJobData | null> {
+    const task = await this.getTask(taskId, queue);
+
+    if (!task) {
       return null;
     }
-    
-    // Can only pause waiting or delayed jobs
-    if (job.status !== 'waiting' && job.status !== 'delayed') {
-      throw new Error(`Cannot pause job with status: ${job.status}. Only waiting or delayed jobs can be paused.`);
+
+    // Can only pause waiting or delayed tasks
+    if (task.status !== 'waiting' && task.status !== 'delayed') {
+      throw new Error(`Cannot pause task with status: ${task.status}. Only waiting or delayed tasks can be paused.`);
     }
-    
-    // Update job with paused flag
-    const pausedJob = {
-      ...job,
+
+    // Update task with paused flag
+    const pausedTask = {
+      ...task,
       paused: true,
     } as AdminJobData;
-    
-    const statusKey = `queues:${queue}:${jobId}:${job.status}`;
-    await this.db.set(statusKey, JSON.stringify(pausedJob));
-    
-    return pausedJob;
+
+    const statusKey = `queues:${queue}:${taskId}:${task.status}`;
+    await this.db.set(statusKey, JSON.stringify(pausedTask));
+
+    return pausedTask;
   }
 
   /**
-   * Resume an individual job (unpause)
+   * Resume an individual task (unpause)
    */
-  async resumeJob(jobId: string, queue: string): Promise<AdminJobData | null> {
-    const job = await this.getJob(jobId, queue);
-    
-    if (!job) {
+  async resumeTask(taskId: string, queue: string): Promise<AdminJobData | null> {
+    const task = await this.getTask(taskId, queue);
+
+    if (!task) {
       return null;
     }
-    
-    // Update job to remove paused flag
-    const resumedJob = {
-      ...job,
+
+    // Update task to remove paused flag
+    const resumedTask = {
+      ...task,
       paused: false,
     } as AdminJobData;
-    
-    const statusKey = `queues:${queue}:${jobId}:${job.status}`;
-    await this.db.set(statusKey, JSON.stringify(resumedJob));
-    
-    return resumedJob;
+
+    const statusKey = `queues:${queue}:${taskId}:${task.status}`;
+    await this.db.set(statusKey, JSON.stringify(resumedTask));
+
+    return resumedTask;
   }
 }

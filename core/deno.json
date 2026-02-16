@@ -1,6 +1,6 @@
 {
   "name": "@hushkey/remq",
-  "version": "0.10.0",
+  "version": "0.12.0",
   "description": "A simple and efficient job queue system for Deno. Built on Redis, it offers high-performance task scheduling and processing with Deno's modern runtime.",
   "license": "MIT",
   "repository": {
