@@ -173,4 +173,4 @@ await run;
 
 - [Processor API](/reference/processor)
 - [TaskManager API](/reference/task-manager)
-- [AdminStore API](/reference/admin-store)
+- [Sdk API](/reference/sdk)

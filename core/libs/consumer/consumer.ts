@@ -22,6 +22,7 @@ export class Consumer extends EventTarget {
   #processingController = new AbortController();
   #processingFinished: Promise<void> = Promise.resolve();
   readonly #activeTasks = new Set<Promise<void>>(); // Like old worker line 63
+  #consecutiveRedisErrors = 0;
 
   constructor(options: ConsumerOptions) {
     super();
@@ -122,6 +123,9 @@ export class Consumer extends EventTarget {
             continue;
           }
 
+          // Successfully read from Redis – reset backoff
+          this.#consecutiveRedisErrors = 0;
+
           // Process messages (like old worker line 293-340)
           for (const message of messages) {
             // Check abort signal
@@ -160,7 +164,16 @@ export class Consumer extends EventTarget {
           }
         } catch (error) {
           console.error('Error in processing loop:', error);
-          await this.delay(this.pollIntervalMs);
+          const isTransient = this.#isRedisTransientError(error);
+          const delayMs = isTransient
+            ? Math.min(
+                this.pollIntervalMs * Math.pow(2, this.#consecutiveRedisErrors),
+                30000,
+              )
+            : this.pollIntervalMs;
+          if (isTransient) this.#consecutiveRedisErrors += 1;
+          else this.#consecutiveRedisErrors = 0;
+          await this.delay(delayMs);
         }
       }
     } finally {
@@ -240,6 +253,25 @@ export class Consumer extends EventTarget {
     if (this.#activeTasks.size > 0) {
       await Promise.all(this.#activeTasks);
     }
+  }
+
+  /**
+   * Heuristic: true if the error is a transient Redis condition (LOADING, connection reset, etc.)
+   * so we can back off instead of hammering Redis.
+   */
+  #isRedisTransientError(error: unknown): boolean {
+    const msg = typeof (error as { message?: string })?.message === 'string'
+      ? (error as { message: string }).message
+      : '';
+    const code = (error as { code?: string })?.code ?? '';
+    return (
+      msg.includes('LOADING') ||
+      msg.includes('ECONNRESET') ||
+      msg.includes('ECONNREFUSED') ||
+      msg.includes('Connection is closed') ||
+      code === 'ECONNRESET' ||
+      code === 'ECONNREFUSED'
+    );
   }
 
   /**

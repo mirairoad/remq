@@ -167,4 +167,4 @@ await taskManager.stop();
 
 - [Consumer API](/reference/consumer)
 - [Processor API](/reference/processor)
-- [AdminStore API](/reference/admin-store)
+- [Sdk API](/reference/sdk)

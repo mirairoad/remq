@@ -46,7 +46,7 @@ import { TaskManager } from "jsr:@remq/remq";
 ## Documentation
 
 - **VitePress docs** — [`www/docs/`](www/docs/) (guides, quick start, API reference)
-- **Core libs** — [`core/libs/task-manager/README.md`](core/libs/task-manager/README.md) | [`core/libs/admin/README.md`](core/libs/admin/README.md) | [`core/libs/processor/README.md`](core/libs/processor/README.md) | [`core/libs/consumer/README.md`](core/libs/consumer/README.md)
+- **Core libs** — [`core/libs/task-manager/README.md`](core/libs/task-manager/README.md) | [`core/libs/sdk/README.md`](core/libs/sdk/README.md) | [`core/libs/processor/README.md`](core/libs/processor/README.md) | [`core/libs/consumer/README.md`](core/libs/consumer/README.md)
 
 ## Up-and-running example
 

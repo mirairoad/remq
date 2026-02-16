@@ -1,28 +1,39 @@
 import { Processor } from '../processor/processor.ts';
 import { DebounceManager } from '../processor/debounce-manager.ts';
-import type { RedisConnection, Message, MessageContext, ProcessableMessage, TaskManagerOptions, TaskHandler, EmitFunction } from '../../types/index.ts';
+import { createWsGateway } from '../gateways/ws.gateway.ts';
+import type {
+  EmitFunction,
+  Message,
+  MessageContext,
+  ProcessableMessage,
+  RedisConnection,
+  TaskHandler,
+  TaskManagerOptions,
+} from '../../types/index.ts';
 import { genJobIdSync } from './utils.ts';
 import { parseCronExpression } from 'cron-schedule';
 
 /**
  * TaskManager - High-level API for managing tasks/jobs
- * 
+ *
  * Based on old worker's robust processJob logic with cleaner naming
  */
 export class TaskManager<T = unknown> {
   private static instance: TaskManager<any>;
-  
+
   private readonly db: RedisConnection;
   private readonly streamdb: RedisConnection;
   private readonly ctx: T & { emit: EmitFunction };
   private readonly concurrency: number;
   private readonly processorOptions: TaskManagerOptions<T>['processor'];
-  
+
   private handlers: Map<string, TaskHandler<T, any>> = new Map();
   private handlerDebounce: Map<string, DebounceManager> = new Map(); // handlerKey -> DebounceManager
   private processor?: Processor;
   private queueStreams: Set<string> = new Set();
   private isStarted = false;
+  private readonly expose?: number;
+  private wsServer?: ReturnType<typeof createWsGateway>;
 
   // Job status messages (like old worker line 71-80)
   private readonly JOB_STATUS_MESSAGES = {
@@ -43,12 +54,17 @@ export class TaskManager<T = unknown> {
       ...(options.ctx || {} as T),
       emit: this.emit.bind(this),
     } as T & { emit: EmitFunction };
+    this.expose = options.expose;
   }
 
   static init<T = unknown>(options: TaskManagerOptions<T>): TaskManager<T> {
     if (!TaskManager.instance) {
       TaskManager.instance = new TaskManager(options);
     }
+    return TaskManager.instance as TaskManager<T>;
+  }
+
+  static getInstance<T = unknown>(): TaskManager<T> {
     return TaskManager.instance as TaskManager<T>;
   }
 
@@ -149,7 +165,9 @@ export class TaskManager<T = unknown> {
 
     let delayUntil = options.delayUntil || new Date();
     if (options.repeat?.pattern) {
-      delayUntil = parseCronExpression(options.repeat.pattern).getNextDate(new Date());
+      delayUntil = parseCronExpression(options.repeat.pattern).getNextDate(
+        new Date(),
+      );
     }
 
     const jobData = {
@@ -178,6 +196,7 @@ export class TaskManager<T = unknown> {
     };
 
     const streamKey = `${queue}-stream`;
+
     this.streamdb.xadd(
       streamKey,
       '*',
@@ -225,14 +244,60 @@ export class TaskManager<T = unknown> {
     this.isStarted = true;
     this.setupGracefulShutdown();
 
+    if (this.expose != null) {
+      this.wsServer = createWsGateway({
+        port: this.expose,
+        hostname: '0.0.0.0',
+        taskManager: this,
+        onConnection: (ws) => this.handleWsConnection(ws),
+      });
+      console.log(`TaskManager WS gateway listening on 0.0.0.0:${this.expose}`);
+    }
+
     const streamList = Array.from(this.queueStreams).join(', ');
-    console.log(`TaskManager started with ${this.queueStreams.size} queue(s) [${streamList}] and concurrency ${this.concurrency}`);
+    console.log(
+      `TaskManager started with ${this.queueStreams.size} queue(s) [${streamList}] and concurrency ${this.concurrency}`,
+    );
+  }
+
+  /**
+   * Handle WebSocket client: accept { type: 'emit', event, queue?, data?, options? } and call emit.
+   */
+  private handleWsConnection(ws: WebSocket): void {
+    ws.addEventListener('message', (event) => {
+      try {
+        const raw = typeof event.data === 'string'
+          ? event.data
+          : new TextDecoder().decode(event.data as ArrayBuffer);
+        const msg = JSON.parse(raw) as {
+          type?: string;
+          event?: string;
+          queue?: string;
+          data?: unknown;
+          options?: Record<string, unknown>;
+        };
+        if (msg?.type === 'emit' && typeof msg.event === 'string') {
+          this.emit({
+            event: msg.event,
+            queue: msg.queue,
+            data: msg.data,
+            options: msg.options,
+          });
+        }
+      } catch (_) {
+        // ignore parse errors
+      }
+    });
   }
 
   /**
    * Stop processing jobs
    */
   async stop(): Promise<void> {
+    if (this.wsServer) {
+      await this.wsServer.shutdown();
+      this.wsServer = undefined;
+    }
     if (this.processor) {
       this.processor.stop();
       await this.processor.waitForActiveTasks();
@@ -271,7 +336,10 @@ export class TaskManager<T = unknown> {
   private createUnifiedProcessor(): void {
     const allStreamKeys = Array.from(this.queueStreams);
 
-    const unifiedMessageHandler = async (message: Message, ctx: MessageContext): Promise<void> => {
+    const unifiedMessageHandler = async (
+      message: Message,
+      ctx: MessageContext,
+    ): Promise<void> => {
       const processableMessage = message as unknown as ProcessableMessage;
       const jobData = processableMessage.data;
 
@@ -281,7 +349,7 @@ export class TaskManager<T = unknown> {
 
       const state = jobData.state;
       const stateAny = state as any;
-      
+
       const queueName = state.queue || 'default';
       const jobName = state.name!;
       const handlerKey = `${queueName}:${jobName}`;
@@ -297,7 +365,9 @@ export class TaskManager<T = unknown> {
 
       // Check if individual job is paused (like old worker line 305-309)
       // Get current job data to check paused flag
-      const jobStatusKey = `queues:${queueName}:${jobId}:${jobData.status || 'waiting'}`;
+      const jobStatusKey = `queues:${queueName}:${jobId}:${
+        jobData.status || 'waiting'
+      }`;
       const jobStatusData = await this.db.get(jobStatusKey);
       if (jobStatusData) {
         try {
@@ -310,18 +380,28 @@ export class TaskManager<T = unknown> {
           // If we can't parse, continue processing
         }
       }
-      
+
       const handler = this.handlers.get(handlerKey);
 
       if (!handler) {
         const registeredHandlers = Array.from(this.handlers.keys()).join(', ');
-        throw new Error(`No handler found for queue: ${queueName}, event: ${jobName}. Registered handlers: ${registeredHandlers}`);
+        throw new Error(
+          `No handler found for queue: ${queueName}, event: ${jobName}. Registered handlers: ${registeredHandlers}`,
+        );
       }
 
       // Check handler-specific debounce (if configured in options.debounce)
       const debounceManager = this.handlerDebounce.get(handlerKey);
       if (debounceManager) {
-        if (!debounceManager.shouldProcess(processableMessage as { id: string; data?: unknown; [key: string]: unknown })) {
+        if (
+          !debounceManager.shouldProcess(
+            processableMessage as {
+              id: string;
+              data?: unknown;
+              [key: string]: unknown;
+            },
+          )
+        ) {
           await ctx.ack();
           return; // Skip - debounced
         }
@@ -329,12 +409,34 @@ export class TaskManager<T = unknown> {
         const originalHandler = handler;
         const wrappedHandler = async (task: any, ctx: any) => {
           await originalHandler(task, ctx);
-          debounceManager.markProcessed(processableMessage as { id: string; data?: unknown; [key: string]: unknown });
+          debounceManager.markProcessed(
+            processableMessage as {
+              id: string;
+              data?: unknown;
+              [key: string]: unknown;
+            },
+          );
         };
-        await this.processJob(jobData, jobId, queueName, state, stateAny, wrappedHandler, processableMessage);
+        await this.processJob(
+          jobData,
+          jobId,
+          queueName,
+          state,
+          stateAny,
+          wrappedHandler,
+          processableMessage,
+        );
       } else {
         // Process job (copied from old worker #processJob line 355-586)
-        await this.processJob(jobData, jobId, queueName, state, stateAny, handler, processableMessage);
+        await this.processJob(
+          jobData,
+          jobId,
+          queueName,
+          state,
+          stateAny,
+          handler,
+          processableMessage,
+        );
       }
     };
 
@@ -376,7 +478,9 @@ export class TaskManager<T = unknown> {
       if (!jobEntry.logger) {
         jobEntry.logger = async (message: string | object) => {
           const logEntry = {
-            message: typeof message === 'string' ? message : JSON.stringify(message),
+            message: typeof message === 'string'
+              ? message
+              : JSON.stringify(message),
             timestamp: Date.now(),
           };
 
@@ -392,7 +496,9 @@ export class TaskManager<T = unknown> {
       // Add processing status to logs (like old worker line 385-397)
       if (
         jobEntry.status !== 'processing' &&
-        !jobEntry.logs.find((log: any) => log.message === this.JOB_STATUS_MESSAGES.processing)
+        !jobEntry.logs.find((log: any) =>
+          log.message === this.JOB_STATUS_MESSAGES.processing
+        )
       ) {
         jobEntry.logs.push({
           message: this.JOB_STATUS_MESSAGES.processing,
@@ -407,7 +513,8 @@ export class TaskManager<T = unknown> {
         status: 'processing',
       };
 
-      const processingKey = `queues:${queueName}:${processingData.id}:${processingData.status}`;
+      const processingKey =
+        `queues:${queueName}:${processingData.id}:${processingData.status}`;
       await this.db.set(processingKey, JSON.stringify(processingData));
 
       // Process the job (like old worker line 412)
@@ -422,7 +529,9 @@ export class TaskManager<T = unknown> {
 
       // After processing, get any logs (like old worker line 414-419)
       const currentJobData = await this.db.get(processingKey);
-      const currentJob = currentJobData ? JSON.parse(currentJobData) : processingData;
+      const currentJob = currentJobData
+        ? JSON.parse(currentJobData)
+        : processingData;
 
       // Combine logs and update status to completed (like old worker line 421-429)
       const completedData = {
@@ -435,14 +544,18 @@ export class TaskManager<T = unknown> {
       };
 
       // Store completed state (like old worker line 431-438)
-      await this.db.del(`queues:${queueName}:${completedData.id}:${completedData.status}`).catch(() => {});
+      await this.db.del(
+        `queues:${queueName}:${completedData.id}:${completedData.status}`,
+      ).catch(() => {});
       await this.db.del(processingKey);
       const completedKey = `queues:${queueName}:${completedData.id}:completed`;
       await this.db.set(completedKey, JSON.stringify(completedData));
 
       // Handle job repetition (like old worker line 451-479)
       // IMPORTANT: Use jobEntry.id (original ID) not completedData.id to preserve cron ID
-      if (jobEntry.repeatCount > 0 && jobEntry?.state?.options?.repeat?.pattern) {
+      if (
+        jobEntry.repeatCount > 0 && jobEntry?.state?.options?.repeat?.pattern
+      ) {
         const cron = parseCronExpression(jobEntry.state.options.repeat.pattern);
 
         const newJob = {
@@ -465,11 +578,13 @@ export class TaskManager<T = unknown> {
       }
     } catch (error: unknown) {
       // Handle failed state (like old worker line 493-585)
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const isConfigError = errorMessage.includes('No handler found') || 
-                           errorMessage.includes('No handlers registered') ||
-                           errorMessage.includes('is undefined');
-      
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error);
+      const isConfigError = errorMessage.includes('No handler found') ||
+        errorMessage.includes('No handlers registered') ||
+        errorMessage.includes('is undefined');
+
       const failedData = {
         ...jobEntry,
         status: 'failed',
@@ -518,7 +633,7 @@ export class TaskManager<T = unknown> {
       console.log(`Received ${signal}, shutting down gracefully...`);
       await this.stop();
       console.log('Shutdown complete');
-      
+
       if (typeof Deno !== 'undefined') {
         // @ts-ignore
         Deno.exit(0);
@@ -548,13 +663,18 @@ export class TaskManager<T = unknown> {
     }
   }
 
-
   /**
    * Ensures consumer group exists
    */
   private async ensureConsumerGroup(streamKey: string): Promise<void> {
     try {
-      await this.streamdb.xgroup('CREATE', streamKey, 'processor', '0', 'MKSTREAM');
+      await this.streamdb.xgroup(
+        'CREATE',
+        streamKey,
+        'processor',
+        '0',
+        'MKSTREAM',
+      );
     } catch (error: unknown) {
       const err = error as { message?: string };
       if (err?.message?.includes('BUSYGROUP')) {

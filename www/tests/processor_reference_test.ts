@@ -46,8 +46,8 @@ Deno.test("Processor reference matches current API", async () => {
     "const processor = new Processor",
     "processor.start()",
     "processor.stop()",
-    "AdminStore API",
-    "/reference/admin-store",
+    "Sdk API",
+    "/reference/sdk",
   ];
 
   for (const snippet of requiredSnippets) {

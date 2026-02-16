@@ -2,11 +2,12 @@ import type { RedisConnection } from '../../types/index.ts';
 import type { AdminJobData, ListJobsOptions, JobStats, QueueInfo } from '../../types/admin.ts';
 
 /**
- * AdminStore - Management API for tasks
+ * Sdk - Client SDK for queue management
  *
  * Provides simple CRUD operations for task management in admin interfaces
+ * and external clients.
  */
-export class AdminStore {
+export class Sdk {
   private readonly db: RedisConnection;
 
   constructor(db: RedisConnection) {

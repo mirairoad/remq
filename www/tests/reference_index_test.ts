@@ -8,7 +8,7 @@ Deno.test("reference index lists all core APIs", async () => {
     "TaskManager",
     "Consumer",
     "Processor",
-    "AdminStore",
+    "Sdk",
   ];
 
   for (const entry of requiredEntries) {

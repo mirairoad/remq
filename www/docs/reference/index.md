@@ -12,7 +12,7 @@ Complete API documentation for REMQ.
 - [TaskManager](/reference/task-manager) - Manage tasks and scheduling
 - [Consumer](/reference/consumer) - Process messages from queues
 - [Processor](/reference/processor) - Handle message processing logic
-- [AdminStore](/reference/admin-store) - Manage admin operations and configuration
+- [Sdk](/reference/sdk) - Client SDK for queue administration and external clients
 
 ## Quick Links
 

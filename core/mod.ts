@@ -22,8 +22,8 @@ export type {
   MessageHandler,
 } from './types/index.ts';
 
-// Export admin/management API
-export { AdminStore } from './libs/admin/mod.ts';
+// Export SDK
+export { Sdk } from './libs/sdk/mod.ts';
 export type {
   AdminJobData,
   ListJobsOptions,

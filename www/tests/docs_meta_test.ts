@@ -18,7 +18,7 @@ const docs: DocExpectation[] = [
   { path: "../docs/reference/task-manager.md", h1Count: 1 },
   { path: "../docs/reference/consumer.md", h1Count: 1 },
   { path: "../docs/reference/processor.md", h1Count: 1 },
-  { path: "../docs/reference/admin-store.md", h1Count: 1 },
+  { path: "../docs/reference/sdk.md", h1Count: 1 },
 ];
 
 Deno.test("docs include consistent frontmatter and headings", async () => {

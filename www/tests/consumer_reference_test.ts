@@ -44,8 +44,8 @@ Deno.test("Consumer reference matches current API", async () => {
     "const run = consumer.start()",
     "consumer.stop()",
     "await run",
-    "AdminStore API",
-    "/reference/admin-store",
+    "Sdk API",
+    "/reference/sdk",
   ];
 
   for (const snippet of requiredSnippets) {

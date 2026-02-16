@@ -143,4 +143,4 @@ await run;
 
 - [Consumer API](/reference/consumer)
 - [TaskManager API](/reference/task-manager)
-- [AdminStore API](/reference/admin-store)
+- [Sdk API](/reference/sdk)

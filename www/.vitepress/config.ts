@@ -63,7 +63,7 @@ export default defineConfig({
             { text: 'TaskManager', link: '/reference/task-manager' },
             { text: 'Consumer', link: '/reference/consumer' },
             { text: 'Processor', link: '/reference/processor' },
-            { text: 'AdminStore', link: '/reference/admin-store' },
+            { text: 'Sdk', link: '/reference/sdk' },
           ],
         },
       ],

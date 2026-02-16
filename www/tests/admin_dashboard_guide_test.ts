@@ -1,19 +1,19 @@
 import { assert } from "@std/assert";
 
-Deno.test("admin dashboard guide introduces AdminStore workflows", async () => {
+Deno.test("admin dashboard guide introduces Sdk workflows", async () => {
   const docUrl = new URL("../docs/guide/admin-dashboard.md", import.meta.url);
   const content = await Deno.readTextFile(docUrl);
 
   const requiredSnippets = [
-    "AdminStore",
+    "Sdk",
     "getQueuesInfo",
     "getQueueStats",
-    "listJobs",
-    "getJob",
-    "retryJob",
-    "deleteJob",
+    "listTasks",
+    "getTask",
+    "retryTask",
+    "deleteTask",
     "TaskManager.emit",
-    "/reference/admin-store",
+    "/reference/sdk",
     "full options and types",
   ];
 
@@ -28,9 +28,9 @@ Deno.test("admin dashboard guide introduces AdminStore workflows", async () => {
     "pauseQueue",
     "resumeQueue",
     "isQueuePaused",
-    "pauseJob",
-    "resumeJob",
-    "cancelJob",
+    "pauseTask",
+    "resumeTask",
+    "cancelTask",
   ];
 
   for (const snippet of forbiddenSnippets) {

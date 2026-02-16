@@ -41,7 +41,7 @@ Main modules for task/job processing with Redis Streams.
 | `Processor.cleanup` | `cleanup(): void` |
 | `DebounceManager` | Per-handler debouncing |
 
-### AdminStore (`libs/admin/`)
+### Sdk (`libs/sdk/`)
 
 | Method | Description |
 |--------|-------------|

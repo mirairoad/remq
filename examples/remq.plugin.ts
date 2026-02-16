@@ -14,9 +14,12 @@ const redisOption = {
 
 // create a streamdb this enhances performance drastically and they get unaffected by the dashboard
 const db = new Redis(redisOption);
+// Handle connection errors so ECONNRESET / reconnects don't crash the process (ioredis auto-reconnects)
+db.on('error', (err) => console.warn('[remq] Redis db error:', err.message));
 
 // Optional: create separate streamdb connection for better performance
 const streamdb = new Redis({ ...redisOption, db: redisOption.db + 1 });
+streamdb.on('error', (err) => console.warn('[remq] Redis streamdb error:', err.message));
 
 // define the context for the app SAMPLE you pass your own context to the tasker so it will be always available, otherwise it will be undefined
 const contextApp = {};
@@ -26,7 +29,7 @@ const remq = TaskManager.init({
   db,
   streamdb, // Optional: separate connection for streams
   ctx: contextApp,
-  expose: 3000, // the websocket port exposed  to allows consumers to interact from remote
+  expose: 4000, // the websocket port exposed  to allows consumers to interact from remote
   concurrency: 2, // the number of messages to process concurrently uses workers steal process strategy
   processor: { // [default] processor options
     debounce: 1 * 60, // 100 minutes
