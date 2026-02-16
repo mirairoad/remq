@@ -2,15 +2,28 @@ import type { RedisConnection } from './index.ts';
 import type { ProcessorOptions } from './processor.ts';
 
 /**
+ * Update function – send a progressive update to the client over WebSocket (when task was triggered via WS).
+ */
+export interface UpdateFunction {
+  (
+    data: unknown,
+    progress?: number,
+  ): void;
+}
+
+/**
  * Handler function signature
  */
 export interface TaskHandler<T = unknown, D = unknown> {
-  (task: {
-    name: string;
-    queue: string;
-    data?: D;
-    logger?: (message: string | object) => Promise<void>;
-  }, ctx: T & { emit: EmitFunction }): Promise<void> | void;
+  (
+    task: {
+      name: string;
+      queue: string;
+      data?: D;
+      logger?: (message: string | object) => Promise<void>;
+    },
+    ctx: T & { emit: EmitFunction; update: UpdateFunction },
+  ): Promise<void> | void;
 }
 
 /**
@@ -33,7 +46,7 @@ export interface EmitFunction {
       attempts?: number;
       debounce?: number;
     };
-  }): void;
+  }): string;
 }
 
 /**
@@ -110,4 +123,3 @@ export interface RegisterHandlerOptions<T = unknown, D = unknown> {
     [key: string]: unknown;
   };
 }
-

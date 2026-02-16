@@ -19,7 +19,10 @@ db.on('error', (err) => console.warn('[remq] Redis db error:', err.message));
 
 // Optional: create separate streamdb connection for better performance
 const streamdb = new Redis({ ...redisOption, db: redisOption.db + 1 });
-streamdb.on('error', (err) => console.warn('[remq] Redis streamdb error:', err.message));
+streamdb.on(
+  'error',
+  (err) => console.warn('[remq] Redis streamdb error:', err.message),
+);
 
 // define the context for the app SAMPLE you pass your own context to the tasker so it will be always available, otherwise it will be undefined
 const contextApp = {};

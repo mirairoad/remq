@@ -44,29 +44,7 @@ export function createWsGateway(options: WsGatewayOptions) {
           onConnection?.(socket);
         });
 
-        socket.addEventListener('message', async (event) => {
-          const taskManager = TaskManager.getInstance();
-          if (!taskManager) {
-            throw new Error('TaskManager not initialized');
-          }
-          try {
-            const raw = typeof event?.data === 'string'
-              ? event.data
-              : new TextDecoder().decode(event.data as ArrayBuffer);
-            const data = JSON.parse(raw);
-            taskManager.emit({
-              event: data?.event,
-              data: data?.data,
-              options: data?.options,
-            });
-          } catch {
-            // console.error('Error parsing message:', event.data);
-            socket.send(JSON.stringify({
-              type: 'error',
-              message: 'Error parsing message',
-            }));
-          }
-        });
+        // Message handling (emit + queued/task_finished reply) is done in onConnection handler (handleWsConnection)
 
         return response;
       } catch (err) {

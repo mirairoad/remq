@@ -9,6 +9,7 @@ import type {
   RedisConnection,
   TaskHandler,
   TaskManagerOptions,
+  UpdateFunction,
 } from '../../types/index.ts';
 import { genJobIdSync } from './utils.ts';
 import { parseCronExpression } from 'cron-schedule';
@@ -34,6 +35,19 @@ export class TaskManager<T = unknown> {
   private isStarted = false;
   private readonly expose?: number;
   private wsServer?: ReturnType<typeof createWsGateway>;
+  readonly #jobFinishedListeners = new Set<
+    (
+      payload: {
+        jobId: string;
+        queue: string;
+        status: 'completed' | 'failed';
+        error?: string;
+      },
+    ) => void
+  >();
+  #jobFinishedUnsubscribe?: () => void;
+  private readonly jobIdToSockets = new Map<string, Set<WebSocket>>();
+  private readonly socketToJobIds = new Map<WebSocket, Set<string>>();
 
   // Job status messages (like old worker line 71-80)
   private readonly JOB_STATUS_MESSAGES = {
@@ -129,7 +143,7 @@ export class TaskManager<T = unknown> {
   }
 
   /**
-   * Emit/trigger a task/event
+   * Emit/trigger a task/event. Returns the job id so callers can track completion.
    */
   emit(args: {
     event: string;
@@ -147,7 +161,7 @@ export class TaskManager<T = unknown> {
       attempts?: number;
       [key: string]: unknown;
     };
-  }): void {
+  }): string {
     const {
       event,
       queue = 'default',
@@ -210,6 +224,75 @@ export class TaskManager<T = unknown> {
     this.db.set(stateKey, JSON.stringify(jobData)).catch((err: unknown) => {
       console.error(`Error storing job state:`, err);
     });
+    return jobId;
+  }
+
+  /**
+   * Subscribe to job completion/failure (e.g. for WebSocket reply).
+   * Returns an unsubscribe function.
+   */
+  onJobFinished(
+    cb: (payload: {
+      jobId: string;
+      queue: string;
+      status: 'completed' | 'failed';
+      error?: string;
+    }) => void,
+  ): () => void {
+    this.#jobFinishedListeners.add(cb);
+    return () => this.#jobFinishedListeners.delete(cb);
+  }
+
+  #notifyJobFinished(payload: {
+    jobId: string;
+    queue: string;
+    status: 'completed' | 'failed';
+    error?: string;
+  }): void {
+    for (const cb of this.#jobFinishedListeners) {
+      try {
+        cb(payload);
+      } catch (err) {
+        console.error('jobFinished listener error:', err);
+      }
+    }
+  }
+
+  /**
+   * Send a progressive update to WebSocket client(s) tracking this task (no-op if none).
+   */
+  private sendTaskUpdate({
+    id,
+    event,
+    queue,
+    data,
+    progress,
+  }: {
+    id: string;
+    event: string;
+    queue: string;
+    data: unknown;
+    progress: number;
+  }): void {
+    const sockets = this.jobIdToSockets.get(id);
+    if (!sockets?.size) return;
+    const payloadStr = JSON.stringify({
+      type: 'task_update',
+      id,
+      event,
+      queue,
+      data,
+      progress,
+    });
+    for (const socket of sockets) {
+      try {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(payloadStr);
+        }
+      } catch (err) {
+        console.error('WS send task_update error:', err);
+      }
+    }
   }
 
   /**
@@ -251,6 +334,30 @@ export class TaskManager<T = unknown> {
         taskManager: this,
         onConnection: (ws) => this.handleWsConnection(ws),
       });
+      this.#jobFinishedUnsubscribe = this.onJobFinished((payload) => {
+        const sockets = this.jobIdToSockets.get(payload.jobId);
+        if (!sockets) return;
+        const payloadStr = JSON.stringify({
+          type: 'task_finished',
+          taskId: payload.jobId,
+          queue: payload.queue,
+          status: payload.status,
+          error: payload.error,
+        });
+        for (const socket of sockets) {
+          try {
+            if (socket.readyState === WebSocket.OPEN) {
+              socket.send(payloadStr);
+            }
+          } catch (err) {
+            console.error('WS send task_finished error:', err);
+          }
+        }
+        this.jobIdToSockets.delete(payload.jobId);
+        for (const socket of sockets) {
+          this.socketToJobIds.get(socket)?.delete(payload.jobId);
+        }
+      });
       console.log(`TaskManager WS gateway listening on 0.0.0.0:${this.expose}`);
     }
 
@@ -261,9 +368,32 @@ export class TaskManager<T = unknown> {
   }
 
   /**
-   * Handle WebSocket client: accept { type: 'emit', event, queue?, data?, options? } and call emit.
+   * Handle WebSocket client: accept { type: 'emit', event, queue?, data?, options? }, call emit,
+   * reply with { type: 'queued', taskId } and later { type: 'task_finished', taskId, status, ... }.
    */
   private handleWsConnection(ws: WebSocket): void {
+    const addJobForSocket = (jobId: string) => {
+      if (!this.socketToJobIds.has(ws)) this.socketToJobIds.set(ws, new Set());
+      this.socketToJobIds.get(ws)!.add(jobId);
+      if (!this.jobIdToSockets.has(jobId)) {
+        this.jobIdToSockets.set(jobId, new Set());
+      }
+      this.jobIdToSockets.get(jobId)!.add(ws);
+    };
+    const removeSocket = () => {
+      const jobIds = this.socketToJobIds.get(ws);
+      if (jobIds) {
+        for (const jobId of jobIds) {
+          this.jobIdToSockets.get(jobId)?.delete(ws);
+          if (this.jobIdToSockets.get(jobId)?.size === 0) {
+            this.jobIdToSockets.delete(jobId);
+          }
+        }
+        this.socketToJobIds.delete(ws);
+      }
+    };
+
+    ws.addEventListener('close', removeSocket);
     ws.addEventListener('message', (event) => {
       try {
         const raw = typeof event.data === 'string'
@@ -276,13 +406,18 @@ export class TaskManager<T = unknown> {
           data?: unknown;
           options?: Record<string, unknown>;
         };
-        if (msg?.type === 'emit' && typeof msg.event === 'string') {
-          this.emit({
+        // Accept both { type: 'emit', event, ... } and { event, data, options }
+        if (typeof msg?.event === 'string') {
+          const jobId = this.emit({
             event: msg.event,
             queue: msg.queue,
             data: msg.data,
             options: msg.options,
           });
+          addJobForSocket(jobId);
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'queued', taskId: jobId }));
+          }
         }
       } catch (_) {
         // ignore parse errors
@@ -294,6 +429,10 @@ export class TaskManager<T = unknown> {
    * Stop processing jobs
    */
   async stop(): Promise<void> {
+    this.#jobFinishedUnsubscribe?.();
+    this.#jobFinishedUnsubscribe = undefined;
+    this.jobIdToSockets.clear();
+    this.socketToJobIds.clear();
     if (this.wsServer) {
       await this.wsServer.shutdown();
       this.wsServer = undefined;
@@ -517,7 +656,18 @@ export class TaskManager<T = unknown> {
         `queues:${queueName}:${processingData.id}:${processingData.status}`;
       await this.db.set(processingKey, JSON.stringify(processingData));
 
-      // Process the job (like old worker line 412)
+      // Process the job (like old worker line 412); inject per-task update for real-time WS updates
+      const ctxWithUpdate = {
+        ...this.ctx,
+        update: (data: unknown, progress: number) =>
+          this.sendTaskUpdate({
+            id: jobId,
+            event: state.name!,
+            queue: state.queue!,
+            data,
+            progress,
+          }),
+      } as T & { emit: EmitFunction; update: UpdateFunction };
       await handler({
         name: state.name!,
         queue: state.queue!,
@@ -525,7 +675,7 @@ export class TaskManager<T = unknown> {
         options: stateAny?.options,
         logger: jobEntry.logger,
         ...processingData,
-      } as any, this.ctx as T & { emit: EmitFunction });
+      } as any, ctxWithUpdate);
 
       // After processing, get any logs (like old worker line 414-419)
       const currentJobData = await this.db.get(processingKey);
@@ -550,6 +700,11 @@ export class TaskManager<T = unknown> {
       await this.db.del(processingKey);
       const completedKey = `queues:${queueName}:${completedData.id}:completed`;
       await this.db.set(completedKey, JSON.stringify(completedData));
+      this.#notifyJobFinished({
+        jobId,
+        queue: queueName,
+        status: 'completed',
+      });
 
       // Handle job repetition (like old worker line 451-479)
       // IMPORTANT: Use jobEntry.id (original ID) not completedData.id to preserve cron ID
@@ -598,6 +753,12 @@ export class TaskManager<T = unknown> {
 
       const failedKey = `queues:${queueName}:${jobEntry.id}:failed`;
       await this.db.set(failedKey, JSON.stringify(failedData));
+      this.#notifyJobFinished({
+        jobId: jobEntry.id,
+        queue: queueName,
+        status: 'failed',
+        error: errorMessage,
+      });
 
       // Handle retry (like old worker line 527-551)
       if (jobEntry.retryCount > 0 && !isConfigError) {

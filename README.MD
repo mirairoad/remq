@@ -80,9 +80,11 @@ const taskManager = TaskManager.init({
 
 taskManager.registerHandler({
   event: "on-request",
-  handler: async (job) => {
+  handler: async (job, ctx) => {
     console.log("runs on request");
     console.log(job.data);
+    // ctx.emit({ event: "other", data: {} });  // trigger more tasks
+    // ctx.update({ progress: 50 });             // real-time update to WS client (BETA)
   },
   options: { attempts: 3 },
 });
@@ -116,7 +118,16 @@ Examples in `examples/`:
 | [`scheduler/onrequest.ts`](examples/scheduler/onrequest.ts) | On-request handler with retries |
 | [`crons/hello-world.ts`](examples/crons/hello-world.ts), [`crons/multi-jobs.ts`](examples/crons/multi-jobs.ts) | Cron jobs |
 
+## Real-time task updates: `ctx.update` (BETA)
+
+When you start the TaskManager with `expose` (WebSocket port), tasks triggered over WebSocket can send **progressive updates** to the client. Call `ctx.update(data)` inside a handler to push JSON-serializable payloads to the socket in real time.
+
+**Use cases:** long-running tasks (report generation, batch jobs), live progress (uploads, exports), multi-step workflows where the UI should show “Step 1/5 done” without polling.
+
+**Client:** listen for `type: 'task_update'` messages (`{ type: 'task_update', taskId, data }`). See [Core README — Real-time task updates](core/README.md#real-time-task-updates-ctxupdate-beta) for a full example.
+
+---
+
 ## Upcoming
 
 - **WS connection for remote processor** — WebSocket connection to run the processor remotely. Use a single powerful machine (e.g. 8 cores) as the worker; many clients connect over WS and only trigger events. No need to run the full stack on each client.
-- **Job progressive status** — Keeps the client in sync with job progress in real time. Ideal for uploads and long-running tasks: show a percentage and completed steps. Users stay informed without blocking or polling.

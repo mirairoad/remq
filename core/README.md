@@ -10,7 +10,7 @@ Main modules for task/job processing with Redis Streams.
 |--------|-----------|
 | `init` | `static init<T>(options): TaskManager<T>` |
 | `registerHandler` | `registerHandler(options): Promise<void>` |
-| `emit` | `emit(args: { event, queue?, data?, options? }): void` |
+| `emit` | `emit(args: { event, queue?, data?, options? }): string` (returns task id) |
 | `start` | `start(): Promise<void>` |
 | `stop` | `stop(): Promise<void>` |
 | `pauseQueue` | `pauseQueue(queue: string): Promise<void>` |
@@ -63,10 +63,58 @@ Main modules for task/job processing with Redis Streams.
 
 | Type | Module |
 |------|--------|
-| `TaskManagerOptions`, `TaskHandler`, `EmitFunction`, `RegisterHandlerOptions` | `types/task-manager.ts` |
+| `TaskManagerOptions`, `TaskHandler`, `EmitFunction`, `UpdateFunction`, `RegisterHandlerOptions` | `types/task-manager.ts` |
 | `ConsumerOptions`, `Message`, `MessageHandler`, `MessageContext`, `ConsumerEvents` | `types/` |
 | `ProcessorOptions`, `ProcessableMessage`, `RetryConfig`, `DLQConfig`, `DebounceConfig` | `types/processor.ts` |
 | `AdminJobData`, `ListJobsOptions`, `JobStats`, `QueueInfo` | `types/admin.ts` |
+
+---
+
+## Real-time task updates: `ctx.update` (BETA)
+
+When the TaskManager is started with `expose` (WebSocket gateway), tasks triggered over WebSocket can send **progressive updates** to the client. Use `ctx.update(data)` inside a handler to push real-time payloads to the socket that requested the task.
+
+- **Only works** when the task was emitted via the WebSocket gateway and the client is still connected. If there is no socket tracking the task, `ctx.update` is a no-op.
+- **Payload**: any JSON-serializable value (object, array, string, number). The client receives `{ type: 'task_update', taskId, data }`.
+
+### Use cases
+
+- **Long-running tasks** — e.g. report generation, batch processing: send `{ step: 'fetching', progress: 20 }`, then `{ step: 'processing', progress: 60 }`, then `{ step: 'done', progress: 100 }`.
+- **Live progress** — file uploads, exports, imports: stream percentage or current item so the UI can show a progress bar or log.
+- **Streaming status** — multi-step workflows: notify the client after each step completes so they see “Step 1/5 done”, “Step 2/5 done”, etc., without polling.
+
+### Example
+
+**Handler (server):**
+
+```ts
+await tm.registerHandler({
+  event: 'generate-report',
+  handler: async (task, ctx) => {
+    ctx.update({ step: 'started', progress: 0 });
+    const raw = await fetchData();
+    ctx.update({ step: 'fetching', progress: 33 });
+    const report = await buildReport(raw);
+    ctx.update({ step: 'building', progress: 66 });
+    await saveReport(report);
+    ctx.update({ step: 'done', progress: 100 });
+  },
+});
+```
+
+**Client (WebSocket):**
+
+```ts
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  if (msg.type === 'task_update') {
+    console.log('Progress:', msg.data); // e.g. { step: 'building', progress: 66 }
+  }
+  if (msg.type === 'task_finished') {
+    console.log('Task done:', msg.status);
+  }
+};
+```
 
 ---
 
@@ -101,7 +149,7 @@ const tm = TaskManager.init({
   },
 });
 
-// Register handler
+// Register handler (ctx.emit for new tasks; ctx.update for real-time WS updates when expose is set — see "Real-time task updates" above)
 await tm.registerHandler({
   handler: async (job, ctx) => {
     console.log('Processing:', job.data);
