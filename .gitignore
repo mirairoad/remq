@@ -5,3 +5,7 @@ node_modules
 .idea
 .env
 .env.local
+
+www/**/.vitepress/dist/
+www/**/.vitepress/cache/
+

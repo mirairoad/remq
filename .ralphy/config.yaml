@@ -1,0 +1,51 @@
+# Ralphy Configuration
+# https://github.com/michaelshimeles/ralphy
+
+project:
+  name: "remq"
+  language: "TypeScript"
+  framework: "Deno"
+  description: "REMQ: a Redis Streams–based job queue + worker system for Deno/TypeScript."
+
+# If Ralphy supports scoping (some tools do), keep it here.
+# Even if Ralphy ignores it, it's still useful documentation for prompts/rules.
+workspace:
+  root: "."
+  scope: "www/remq"
+
+commands:
+  # Prefer running inside www/remq (see rules below).
+  test: "deno test -A"
+  lint: "deno lint && deno fmt --check"
+  build: "deno task build"
+
+rules:
+  # Monorepo / scope fence (this is the #1 practical win)
+  - "Work ONLY inside www/remq/** unless explicitly instructed otherwise."
+  - "Do NOT scan or modify other packages in the monorepo."
+  - "When asked to change a single file (e.g., README.md), do it in ONE pass: edit the file and stop. Do not create subtasks."
+
+  # Deno/TS correctness + maintainability
+  - "Use TypeScript with strict typing; avoid `any` unless justified."
+  - "Prefer small, reviewable diffs; avoid broad refactors unless requested."
+  - "Do not add new dependencies unless explicitly requested; prefer the standard library."
+  - "If you change public APIs, update the README and add/adjust tests."
+
+  # Reliability / safety
+  - "Never modify secrets or credentials; do not commit .env or private keys."
+  - "If a command is needed, prefer `deno task <name>` over ad-hoc scripts."
+
+boundaries:
+  never_touch:
+    # Repo hygiene
+    - "**/*.lock"
+    - "**/node_modules/**"
+    - "**/dist/**"
+    - "**/build/**"
+    - "**/.git/**"
+
+    # Common sensitive / generated files
+    - "**/.env"
+    - "**/.env.*"
+    - "**/*.pem"
+    - "**/*.key"

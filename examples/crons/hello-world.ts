@@ -1,9 +1,7 @@
-import type { Task } from '@core/types/index.ts';
+import { remq } from '../remq.plugin.ts';
 
-const task: Task<unknown> = {
-  name: 'hello-world',
-  queue: 'crons',
-  handler: (job, ctx) => {
+remq.registerHandler({
+  handler: (job: any, ctx: any) => {
     console.log(
       '%c- runs every 1 minutes',
       'color: white; background-color: red;',
@@ -11,14 +9,11 @@ const task: Task<unknown> = {
     setTimeout(() => {
     }, 5000);
   },
+  event: 'hello-world',
   options: {
     repeat: {
       pattern: '* * * * *',
     },
-    retryCount: 3,
-    retryDelayMs: 15000,
-    delayUntil: new Date(Date.now() + 6000000),
+    // attempts: 3,
   },
-};
-
-export default task;
+});

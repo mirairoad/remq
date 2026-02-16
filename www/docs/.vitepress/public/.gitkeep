@@ -1,0 +1,5 @@
+# Assets folder
+# Place your logo and other static assets here
+# Files in this directory will be served at the root path
+# Example: .vitepress/public/logo.png -> accessible as /logo.png
+

@@ -8,7 +8,7 @@
     "url": "https://github.com/mirairoad/tempotask"
   },
   "imports": {
-    "@core/": "../core/src/",
+    "@core/": "../core/",
     "ioredis": "npm:ioredis@^5.5.0",
     "cron-schedule": "jsr:@p4sca1/cron-schedule@^5.0.3"
   },

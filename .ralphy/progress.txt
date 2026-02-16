@@ -1,0 +1,21 @@
+# Ralphy Progress Log
+
+- [✓] 2026-01-31 15:21 - **7.4** **Running the examples:** How to run from repo (e.g.
+- [✓] 2026-01-31 15:26 - **7.5** **Docs link:** Link to the VitePress docs site (or “docs in repo”
+- [✓] 2026-01-31 15:26 - **7.6** Remove or replace any TempoTask / tempotask / old JSR package
+- [✓] 2026-01-31 15:29 - **8.1** **Guide index** (`www/docs/guide/index.md`): Keep “What is REMQ?”
+- [✓] 2026-01-31 15:33 - **8.2** **Quick Start** (`www/docs/guide/quick-start.md`): Replace fake
+- [✓] 2026-01-31 15:35 - **8.3** **Task Management** (`www/docs/guide/task-management.md`):
+- [✓] 2026-01-31 15:37 - **8.4** **Message Queues** (`www/docs/guide/message-queues.md`): Describe
+- [✓] 2026-01-31 15:39 - **8.5** **Consumers** (`www/docs/guide/consumers.md`): Describe how
+- [✓] 2026-01-31 15:43 - **8.6** Optional: add **Admin / dashboard** guide page that introduces
+- [✓] 2026-01-31 15:45 - **9.1** **Home** (`www/docs/index.md`): “Get Started” →
+- [✓] 2026-01-31 15:45 - **9.2** **Getting Started:** Installation and Quick Start linked from
+- [✓] 2026-01-31 15:46 - **9.3** **Guide → Reference:** Every guide page has at least one “See
+- [✓] 2026-01-31 15:46 - **9.4** **Sidebar:** Guide sidebar lists Quick Start, Task Management,
+- [✓] 2026-01-31 15:46 - **9.5** **Config:** If repo name/URL is REMQ, update
+- [✓] 2026-01-31 15:48 - **10.1** **Package / import names:** Every code sample and install
+- [✓] 2026-01-31 15:52 - **10.2** **API surface:** No references to non-existent APIs (e.g.
+- [✓] 2026-01-31 15:53 - **10.3** **Code samples:** At least the README and Quick Start examples
+- [✓] 2026-01-31 15:53 - **10.4** **Links:** All internal links in README and www/docs (guide,
+- [✓] 2026-01-31 15:57 - **10.5** **Reference vs guide:** Guide explains concepts and points to
