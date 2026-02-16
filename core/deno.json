@@ -1,6 +1,6 @@
 {
   "name": "@hushkey/remq",
-  "version": "0.12.0",
+  "version": "0.15.0",
   "description": "Redis-backed job queue and scheduler for Deno. Syntax inspired by BullMQ and RabbitMQ — ergonomics and flexibility first.",
   "license": "MIT",
   "repository": {
