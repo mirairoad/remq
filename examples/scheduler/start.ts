@@ -1,4 +1,4 @@
-import { tempotask } from '../tempotask.plugin.ts';
+import { remq } from '../remq.plugin.ts';
 
 type DataStructure = {
   id: number;
@@ -6,7 +6,7 @@ type DataStructure = {
   email: string;
 };
 
-tempotask.registerHandler({
+remq.registerHandler({
   handler: async (job, ctx) => {
     console.log(
       '%c- runs every 30 seconds',
@@ -30,7 +30,7 @@ tempotask.registerHandler({
         email: 'jim.beam@example.com',
       },
     ];
-    
+
     for (let i = 0; i < 3; i++) {
       ctx.emit({
         event: 'on-request',

@@ -1,17 +1,16 @@
-import { tempotask } from './tempotask.plugin.ts';
+import { remq } from './remq.plugin.ts';
 import './crons/hello-world.ts';
 import './crons/multi-jobs.ts';
 import './scheduler/start.ts';
 import './scheduler/onrequest.ts';
 
-
-console.log('🚚 tempotask is running with core');
+console.log('🚚 remq is running with core');
 
 // Start processing jobs
-await tempotask.start();
+await remq.start();
 
 // Emit a test job
-tempotask.emit({
+remq.emit({
   event: 'on-request',
   data: {
     name: 'John Doe',

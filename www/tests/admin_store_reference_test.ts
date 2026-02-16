@@ -35,22 +35,30 @@ Deno.test("AdminStore reference matches current API", async () => {
     "QueueInfo` objects (`name` + `stats`)",
     "retryJob",
     "TaskManager.emit()",
-    "cancelJob",
-    "pauseQueue",
-    "resumeQueue",
-    "isQueuePaused",
-    "pauseJob",
-    "resumeJob",
     "only failed jobs can be retried",
-    "only those can be",
-    "These methods do not throw if the queue has no jobs or is unknown.",
-    "`pauseJob` throws if the job status is not `waiting` or `delayed`",
+    "Use this when you need to cancel a job",
   ];
 
   for (const snippet of requiredSnippets) {
     assert(
       content.includes(snippet),
       `Expected AdminStore reference to include ${snippet}.`,
+    );
+  }
+
+  const forbiddenSnippets = [
+    "cancelJob",
+    "pauseQueue",
+    "resumeQueue",
+    "isQueuePaused",
+    "pauseJob",
+    "resumeJob",
+  ];
+
+  for (const snippet of forbiddenSnippets) {
+    assert(
+      !content.includes(snippet),
+      `Expected AdminStore reference to avoid ${snippet}.`,
     );
   }
 });

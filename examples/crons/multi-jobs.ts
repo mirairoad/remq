@@ -1,6 +1,6 @@
-import { tempotask } from '../tempotask.plugin.ts';
+import { remq } from '../remq.plugin.ts';
 
-tempotask.registerHandler({
+remq.registerHandler({
   event: 'multi-jobs',
   handler: (job: any, ctx: any) => {
     console.log(
@@ -16,4 +16,3 @@ tempotask.registerHandler({
     },
   },
 });
-

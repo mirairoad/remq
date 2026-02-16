@@ -22,13 +22,20 @@ const streamdb = new Redis({ ...redisOption, db: redisOption.db + 1 });
 const contextApp = {};
 
 // initialize the task manager (using new core API)
-const tempotask = TaskManager.init({
+const remq = TaskManager.init({
   db,
   streamdb, // Optional: separate connection for streams
-  expose: 4000,
   ctx: contextApp,
-  concurrency: 1,
-  processor: {
+  expose: 3000, // the websocket port exposed  to allows consumers to interact from remote
+  concurrency: 2, // the number of messages to process concurrently uses workers steal process strategy
+  processor: { // [default] processor options
+    debounce: 1 * 60, // 100 minutes
+    dlq: {
+      streamKey: 'remq-dlq', // the stream key to send the failed messages to
+      shouldSendToDLQ: (message, error, attempts) => {
+        return attempts >= 3; // send to dlq if the message has been retried 3 times
+      },
+    },
     retry: {
       maxRetries: 3,
       retryDelayMs: 1000,
@@ -36,4 +43,4 @@ const tempotask = TaskManager.init({
   },
 });
 
-export { tempotask };
+export { remq };

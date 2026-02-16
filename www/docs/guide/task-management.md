@@ -5,39 +5,68 @@ description: Define jobs, schedules, and retries with TaskManager.
 
 # Task Management
 
-Learn how to manage tasks in REMQ.
+Use the `TaskManager` to register handlers, emit jobs, and control scheduling
+and retries.
 
-## Creating Tasks
+## Core Concepts
 
-Tasks in REMQ are simple messages that can be scheduled and processed:
+- **Handlers** map an `event` name to your async job logic.
+- **Events** are job names that producers emit and handlers consume.
+- **Queues** isolate workloads (defaults to `default`).
+
+## Register a Handler
+
+Define how a job should be processed. Handler options can add repeats,
+attempt limits, and debounce windows.
+
+For full options and types, see the
+[TaskManager API Reference](/reference/task-manager).
 
 ```typescript
-import { TaskManager } from '@leotermine/tasker';
+import Redis from 'npm:ioredis';
+import { TaskManager } from 'npm:@leotermine/tasker';
 
-const taskManager = new TaskManager({
-  redis: {
-    host: 'localhost',
-    port: 6379,
+const db = new Redis({ host: '127.0.0.1', port: 6379 });
+const taskManager = TaskManager.init({ db });
+
+await taskManager.registerHandler({
+  event: 'send-email',
+  queue: 'emails',
+  handler: async (job) => {
+    console.log('Email job', job.id, job.data?.to);
+  },
+  options: {
+    repeat: { pattern: '0 9 * * *' },
+    attempts: 3,
+    debounce: 60_000,
   },
 });
-
-// Schedule a task for later execution
-await taskManager.schedule('task-id', { data: 'example' }, Date.now() + 1000);
 ```
 
-## Task Properties
+## Emit Jobs
 
-Tasks can contain any serializable data:
+Use `emit()` to enqueue work and control when it runs.
 
 ```typescript
-await taskManager.schedule('send-email', {
-  to: 'user@example.com',
-  subject: 'Welcome',
-  body: 'Welcome to REMQ!',
-}, Date.now() + 5000);
+await taskManager.emit({
+  event: 'send-email',
+  queue: 'emails',
+  data: { to: 'user@example.com', subject: 'Welcome' },
+  options: {
+    id: 'welcome-user-123',
+    priority: 5,
+    delayUntil: new Date(Date.now() + 60_000),
+    retryCount: 2,
+    retryDelayMs: 2_000,
+    repeat: { pattern: '0 9 * * 1' },
+    attempts: 3,
+    debounce: 30_000,
+  },
+});
 ```
 
 ## Next Steps
 
+- Explore all options in the [TaskManager API](/reference/task-manager)
 - Learn about [Message Queues](/guide/message-queues)
 - Understand [Consumers](/guide/consumers)

@@ -151,7 +151,8 @@ Params:
 - `jobId` (string) - Job id to delete.
 - `queue` (string) - Queue name to delete from.
 
-Deletes a job and its logs from Redis.
+Deletes a job and its logs from Redis. Use this when you need to cancel a job
+before it runs.
 
 ### `getQueueStats(queue: string): Promise<JobStats>`
 
@@ -186,54 +187,6 @@ Errors:
 
 Note: this method only updates Redis state. Re-emit the job via
 `TaskManager.emit()` to actually process it.
-
-### `cancelJob(jobId, queue)`
-
-Params:
-
-- `jobId` (string) - Job id to cancel.
-- `queue` (string) - Queue name to cancel within.
-
-Cancels a job by deleting it. Returns `true` when cancelled and `false` when
-the job is not found.
-
-Errors:
-
-- Throws if the job status is not `waiting` or `delayed` (only those can be
-  cancelled).
-
-## Queue controls
-
-### `pauseQueue(queue)` / `resumeQueue(queue)` / `isQueuePaused(queue)`
-
-Pauses and resumes a queue by toggling a Redis pause key. `TaskManager` checks
-this key before processing new jobs, so pausing a queue prevents work from
-starting.
-
-Behavior:
-
-- `pauseQueue` sets the pause key for the queue.
-- `resumeQueue` deletes the pause key for the queue.
-- `isQueuePaused` returns `true` when the pause key exists, otherwise `false`.
-
-Errors:
-
-- These methods do not throw if the queue has no jobs or is unknown.
-
-### `pauseJob(jobId, queue)` / `resumeJob(jobId, queue)`
-
-Pauses or resumes an individual job by toggling its `paused` flag. Returns the
-updated job or `null` if the job is missing.
-
-Behavior:
-
-- `pauseJob` sets `paused: true` on the job.
-- `resumeJob` sets `paused: false` on the job.
-
-Errors:
-
-- `pauseJob` throws if the job status is not `waiting` or `delayed` (only those
-  can be paused).
 
 ## Next Steps
 

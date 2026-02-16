@@ -38,4 +38,13 @@ Deno.test("TaskManager reference matches current API", async () => {
     !content.includes("new TaskManager"),
     "Expected TaskManager reference to avoid constructor usage.",
   );
+
+  const forbiddenSnippets = ["pauseQueue", "resumeQueue", "isQueuePaused"];
+
+  for (const snippet of forbiddenSnippets) {
+    assert(
+      !content.includes(snippet),
+      `Expected TaskManager reference to avoid ${snippet}.`,
+    );
+  }
 });

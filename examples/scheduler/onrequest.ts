@@ -1,6 +1,6 @@
-import { tempotask } from '../tempotask.plugin.ts';
+import { remq } from '../remq.plugin.ts';
 
-tempotask.registerHandler({
+remq.registerHandler({
   handler: async (job: any, ctx: any) => {
     console.log(
       '%c- runs on request',

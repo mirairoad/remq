@@ -163,10 +163,6 @@ await taskManager.stop();
 
 ## Queue controls
 
-### `pauseQueue(queue)` / `resumeQueue(queue)` / `isQueuePaused(queue)`
-
-Pause and resume processing for a specific queue, or check if it is paused.
-
 ## Next Steps
 
 - [Consumer API](/reference/consumer)

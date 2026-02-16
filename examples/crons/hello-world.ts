@@ -1,6 +1,6 @@
-import { tempotask } from '../tempotask.plugin.ts';
+import { remq } from '../remq.plugin.ts';
 
-tempotask.registerHandler({
+remq.registerHandler({
   handler: (job: any, ctx: any) => {
     console.log(
       '%c- runs every 1 minutes',
@@ -17,4 +17,3 @@ tempotask.registerHandler({
     // attempts: 3,
   },
 });
-

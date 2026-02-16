@@ -9,10 +9,10 @@ Get up and running with REMQ in minutes.
 
 ## Installation
 
-First, install REMQ:
+First, install REMQ and a Redis client:
 
 ```bash
-deno add npm:@leotermine/tasker
+deno add npm:@leotermine/tasker npm:ioredis
 ```
 
 ## Basic Example
@@ -20,20 +20,35 @@ deno add npm:@leotermine/tasker
 Here's a simple example to get you started:
 
 ```typescript
-import { TaskManager } from '@leotermine/tasker';
+import Redis from 'npm:ioredis';
+import { TaskManager } from 'npm:@leotermine/tasker';
 
-const taskManager = new TaskManager({
-  redis: {
-    host: 'localhost',
-    port: 6379,
+const db = new Redis({
+  host: '127.0.0.1',
+  port: 6379,
+});
+
+const taskManager = TaskManager.init({ db });
+
+await taskManager.registerHandler({
+  event: 'send-welcome',
+  handler: async (job) => {
+    console.log('Sending welcome email for', job.data?.userId);
   },
 });
 
-// Schedule a task
-await taskManager.schedule('my-task', { data: 'example' }, Date.now() + 1000);
+await taskManager.start();
 
-console.log('Task scheduled!');
+await taskManager.emit({
+  event: 'send-welcome',
+  data: { userId: 'user_123' },
+});
+
+console.log('Job queued!');
 ```
+
+For full options and types, see the
+[TaskManager API Reference](/reference/task-manager).
 
 ## What's Next?
 

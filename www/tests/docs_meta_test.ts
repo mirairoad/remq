@@ -13,6 +13,7 @@ const docs: DocExpectation[] = [
   { path: "../docs/guide/task-management.md", h1Count: 1 },
   { path: "../docs/guide/message-queues.md", h1Count: 1 },
   { path: "../docs/guide/consumers.md", h1Count: 1 },
+  { path: "../docs/guide/admin-dashboard.md", h1Count: 1 },
   { path: "../docs/reference/index.md", h1Count: 1 },
   { path: "../docs/reference/task-manager.md", h1Count: 1 },
   { path: "../docs/reference/consumer.md", h1Count: 1 },
@@ -56,4 +57,26 @@ Deno.test("docs include consistent frontmatter and headings", async () => {
       `${doc.path} should have ${doc.h1Count} H1 heading(s).`,
     );
   }
+});
+
+Deno.test("guide index keeps What is REMQ section", async () => {
+  const docUrl = new URL("../docs/guide/index.md", import.meta.url);
+  const content = await Deno.readTextFile(docUrl);
+
+  assert(
+    content.includes("## What is REMQ?"),
+    "guide index should keep the What is REMQ section.",
+  );
+});
+
+Deno.test("home page Get Started action points to installation", async () => {
+  const docUrl = new URL("../docs/index.md", import.meta.url);
+  const content = await Deno.readTextFile(docUrl);
+
+  assert(
+    /text:\s*Get Started[\s\S]*?link:\s*\/getting-started\/installation/m.test(
+      content,
+    ),
+    "home page Get Started action should link to /getting-started/installation.",
+  );
 });
