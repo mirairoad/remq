@@ -8,6 +8,6 @@ export { Sdk } from './sdk.ts';
 export type {
   AdminJobData,
   ListJobsOptions,
-  JobStats,
   QueueInfo,
+  TaskStats,
 } from '../../types/admin.ts';

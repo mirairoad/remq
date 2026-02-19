@@ -31,7 +31,7 @@ const sdk = new Sdk(db);
 ## Queue overview cards
 
 Use `getQueuesInfo()` or `getQueueStats()` to populate queue summary tiles.
-Each `JobStats` entry includes per-status counts.
+Each `TaskStats` entry includes per-status counts.
 
 ```typescript
 const queues = await sdk.getQueuesInfo();
@@ -82,7 +82,7 @@ For full options and types, see the [Sdk API Reference](/reference/sdk).
 
 ## Recommended dashboard sections
 
-- **Queue health**: `JobStats` counts by status.
+- **Queue health**: `TaskStats` counts by status.
 - **Job table**: filters for `status`, `queue`, and time range.
 - **Job detail**: logs, errors, and retry history from `AdminJobData`.
 - **Controls**: retry or delete jobs with clear guardrails.

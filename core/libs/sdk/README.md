@@ -110,4 +110,4 @@ await sdk.deleteTask(id, queue);
 
 ## Types
 
-Exported from `@core/mod.ts`: `AdminJobData`, `ListJobsOptions`, `JobStats`, `QueueInfo`.
+Exported from `@core/mod.ts`: `AdminJobData`, `ListJobsOptions`, `TaskStats`, `QueueInfo`.

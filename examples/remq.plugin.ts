@@ -1,4 +1,4 @@
-import { TaskManager } from '../core/libs/task-manager/mod.ts';
+import { TaskManager } from '@core/libs/task-manager/mod.ts';
 import { Redis } from 'ioredis';
 
 // Create Redis Option
@@ -32,7 +32,7 @@ const remq = TaskManager.init({
   db,
   streamdb, // Optional: separate connection for streams
   ctx: contextApp,
-  expose: 4000, // the websocket port exposed  to allows consumers to interact from remote
+  expose: 4000, // WebSocket port; clients can send header x-get-broadcast: true to receive all task updates
   concurrency: 2, // the number of messages to process concurrently uses workers steal process strategy
   processor: { // [default] processor options
     debounce: 1 * 60, // 100 minutes
@@ -43,9 +43,11 @@ const remq = TaskManager.init({
       },
     },
     retry: {
-      maxRetries: 3,
-      retryDelayMs: 1000,
+      // maxRetries: 5,
+      // retryDelayMs: 3000,
+      // shouldRetry: (error, attempt) => true,
     },
+    maxLogsPerTask: 100, // trim oldest logs; keeps Redis self-cleaning
   },
 });
 

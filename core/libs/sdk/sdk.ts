@@ -1,5 +1,5 @@
 import type { RedisConnection } from '../../types/index.ts';
-import type { AdminJobData, ListJobsOptions, JobStats, QueueInfo } from '../../types/admin.ts';
+import type { AdminJobData, ListJobsOptions, TaskStats, QueueInfo } from '../../types/admin.ts';
 
 /**
  * Sdk - Client SDK for queue management
@@ -142,9 +142,9 @@ export class Sdk {
   /**
    * Get task statistics for a queue
    */
-  async getQueueStats(queue: string): Promise<JobStats> {
+  async getQueueStats(queue: string): Promise<TaskStats> {
     const statuses: AdminJobData['status'][] = ['waiting', 'processing', 'completed', 'failed', 'delayed'];
-    const stats: JobStats = {
+    const stats: TaskStats = {
       queue,
       waiting: 0,
       processing: 0,

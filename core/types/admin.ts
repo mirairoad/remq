@@ -44,9 +44,9 @@ export interface ListJobsOptions {
 }
 
 /**
- * Job statistics
+ * Task statistics per queue
  */
-export interface JobStats {
+export interface TaskStats {
   queue: string;
   waiting: number;
   processing: number;
@@ -61,5 +61,5 @@ export interface JobStats {
  */
 export interface QueueInfo {
   name: string;
-  stats: JobStats;
+  stats: TaskStats;
 }

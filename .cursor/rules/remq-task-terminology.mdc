@@ -1,0 +1,30 @@
+---
+description: Use "task" terminology instead of "job" for queued work in remq
+alwaysApply: true
+---
+
+# Prefer "task" over "job"
+
+In this codebase, **always use "task"** (not "job") when naming or referring to a single unit of queued work.
+
+## API and code
+
+- **Methods**: `onTaskFinished`, not `onJobFinished`.
+- **Payloads**: Use `taskId`, not `jobId`, in callback payloads and public types.
+- **Variables**: Prefer `task`, `taskId`, `taskIds` over `job`, `jobId`, `jobIds` in user-facing code and examples.
+
+## Examples
+
+```ts
+// ✅ GOOD
+remq.onTaskFinished((task) => {
+  console.log('Task finished:', task.taskId, task.status);
+});
+
+// ❌ BAD
+remq.onJobFinished((job) => {
+  console.log('Job finished:', job.jobId);
+});
+```
+
+Internal implementation (e.g. Redis keys, stream keys) may still use "job" where it predates this convention; when adding new APIs, docs, or examples, use **task** first.

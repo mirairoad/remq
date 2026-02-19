@@ -5,7 +5,7 @@
 
 import { TaskManager } from '../task-manager/mod.ts';
 
-export type WsConnectionHandler = (ws: WebSocket) => void;
+export type WsConnectionHandler = (ws: WebSocket, req: Request) => void;
 
 export type WsGatewayOptions = {
   port: number;
@@ -41,7 +41,7 @@ export function createWsGateway(options: WsGatewayOptions) {
         const { socket, response } = Deno.upgradeWebSocket(req);
 
         socket.addEventListener('open', () => {
-          onConnection?.(socket);
+          onConnection?.(socket, req);
         });
 
         // Message handling (emit + queued/task_finished reply) is done in onConnection handler (handleWsConnection)

@@ -39,7 +39,7 @@ the same connection used by `TaskManager` so queue state is consistent.
 | --- | --- | --- |
 | `AdminJobData` | Stored job record | `id`, `state`, `status`, timestamps (`timestamp`, `lastRun`, `delayUntil`, `lockUntil`), `logs`, `errors`, `paused` |
 | `ListJobsOptions` | List/filter options for `listTasks` | `queue`, `status`, `limit`, `offset` |
-| `JobStats` | Per-queue status counts | `queue`, `waiting`, `processing`, `completed`, `failed`, `delayed`, `total` |
+| `TaskStats` | Per-queue status counts | `queue`, `waiting`, `processing`, `completed`, `failed`, `delayed`, `total` |
 | `QueueInfo` | Queue name + stats bundle | `name`, `stats` |
 
 ## AdminJobData
@@ -88,10 +88,10 @@ interface ListJobsOptions {
 
 queue is required by `listTasks` and is validated at runtime.
 
-## JobStats and QueueInfo
+## TaskStats and QueueInfo
 
 ```typescript
-interface JobStats {
+interface TaskStats {
   queue: string;
   waiting: number;
   processing: number;
@@ -103,7 +103,7 @@ interface JobStats {
 
 interface QueueInfo {
   name: string;
-  stats: JobStats;
+  stats: TaskStats;
 }
 ```
 
@@ -148,9 +148,9 @@ Notes:
 
 Deletes a job and its logs from Redis.
 
-### `getQueueStats(queue: string): Promise<JobStats>`
+### `getQueueStats(queue: string): Promise<TaskStats>`
 
-Returns a `JobStats` object with counts by status plus a `total` for a single queue.
+Returns a `TaskStats` object with counts by status plus a `total` for a single queue.
 
 ### `getQueues(): Promise<string[]>`
 

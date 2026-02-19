@@ -1,0 +1,25 @@
+---
+description: Keep documentation in sync when changing code or API
+alwaysApply: true
+---
+
+# Always update documentation
+
+When you change code that affects behavior, API, or configuration, **update the relevant documentation in the same change**.
+
+## What to update
+
+- **Public API** (TaskManager, emit, handlers, options) → `README.md`, `core/README.md`, and `www/docs/` (reference + guides).
+- **Core libs** (task-manager, processor, consumer, sdk) → the lib’s `README.md` and/or `EXAMPLE.md` under `core/libs/*/`.
+- **New or renamed options** (processor, retry, DLQ, expose, etc.) → document in `core/README.md` and any `www/docs` reference that covers that area.
+- **Examples** → keep `examples/` in sync with the current API (e.g. `onTaskFinished`, `ctx.socket.update`).
+
+## Checklist
+
+Before finishing a change that touches API or behavior:
+
+1. Search for existing docs that mention the old name or behavior (`README.md`, `core/README.md`, `www/docs/**/*.md`, `core/libs/*/README.md`).
+2. Update those docs (and examples) so they match the new API or behavior.
+3. Add or adjust doc for new APIs/options; don’t leave them undocumented.
+
+Documentation should be updated in the **same edit or PR** as the code change, not deferred.

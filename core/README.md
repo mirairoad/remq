@@ -33,6 +33,7 @@ Main modules for task/job processing with Redis Streams.
 
 | Class / Method | Description |
 |----------------|-------------|
+| `processor.maxLogsPerTask` | Trim oldest logs per task; keeps Redis self-cleaning (default: no limit) |
 | `Processor` | Policy layer wrapping Consumer |
 | `Processor.constructor` | `(options: ProcessorOptions)` |
 | `Processor.start` | `start(options?): Promise<void>` |
@@ -50,7 +51,7 @@ Main modules for task/job processing with Redis Streams.
 | `deleteJob` | `deleteJob(jobId, queue): Promise<void>` |
 | `retryJob` | `retryJob(jobId, queue): Promise<AdminJobData \| null>` |
 | `cancelJob` | `cancelJob(jobId, queue): Promise<boolean>` |
-| `getQueueStats` | `getQueueStats(queue): Promise<JobStats>` |
+| `getQueueStats` | `getQueueStats(queue): Promise<TaskStats>` |
 | `getQueues` | `getQueues(): Promise<string[]>` |
 | `getQueuesInfo` | `getQueuesInfo(): Promise<QueueInfo[]>` |
 | `pauseQueue` | `pauseQueue(queue): Promise<void>` |
@@ -66,16 +67,64 @@ Main modules for task/job processing with Redis Streams.
 | `TaskManagerOptions`, `TaskHandler`, `EmitFunction`, `UpdateFunction`, `RegisterHandlerOptions` | `types/task-manager.ts` |
 | `ConsumerOptions`, `Message`, `MessageHandler`, `MessageContext`, `ConsumerEvents` | `types/` |
 | `ProcessorOptions`, `ProcessableMessage`, `RetryConfig`, `DLQConfig`, `DebounceConfig` | `types/processor.ts` |
-| `AdminJobData`, `ListJobsOptions`, `JobStats`, `QueueInfo` | `types/admin.ts` |
+| `AdminJobData`, `ListJobsOptions`, `TaskStats`, `QueueInfo` | `types/admin.ts` |
 
 ---
 
-## Real-time task updates: `ctx.update` (BETA)
+## Retry options: levels and combo
 
-When the TaskManager is started with `expose` (WebSocket gateway), tasks triggered over WebSocket can send **progressive updates** to the client. Use `ctx.update(data)` inside a handler to push real-time payloads to the socket that requested the task.
+Retry behavior depends on options at two levels. Both must allow retries.
 
-- **Only works** when the task was emitted via the WebSocket gateway and the client is still connected. If there is no socket tracking the task, `ctx.update` is a no-op.
-- **Payload**: any JSON-serializable value (object, array, string, number). The client receives `{ type: 'task_update', taskId, data }`.
+### Per-task level (`emit` / `registerHandler.options`)
+
+| Option | Role |
+|--------|------|
+| `attempts` or `retryCount` | Number of retries for this task (use one; they are the same) |
+| `retryDelayMs` | Delay before each retry (ms) |
+
+### Processor level (`processor.retry`)
+
+| Option | Role |
+|--------|------|
+| `maxRetries` | Global switch: retries happen only if > 0 |
+| `retryDelayMs` | Default delay before retries (overridden by per-task `retryDelayMs`) |
+| `shouldRetry` | `(error: Error, attempt: number) => boolean` — filter which errors to retry; return `false` to skip retry (e.g. for validation errors) |
+
+### Common mistakes
+
+- **`attempts` and `retryCount` together** — Redundant. Use one.
+- **`shouldRetry` in emit options** — Invalid. `shouldRetry` is a processor callback, not an emit option.
+- **`debounce` in emit options** — Wrong level. Debounce is per-handler in `registerHandler`, not per emit.
+
+### How the combo works
+
+1. Task fails → processor checks `retryCount > 0` and `maxRetries > 0`.
+2. If both true → calls `shouldRetry(error, attempt)` (if set).
+3. If `shouldRetry` returns false → no retry (may go to DLQ).
+4. Otherwise → retry; `retryCount` is decremented.
+
+```ts
+// Minimal: processor enables retries, per-task sets count
+processor: { retry: { maxRetries: 5 } },
+registerHandler({ event: 'foo', handler, options: { attempts: 3 } });  // 3 retries
+
+// Filter errors: retry network, skip validation
+processor: {
+  retry: {
+    maxRetries: 5,
+    shouldRetry: (err) => !err.message.includes('validation'),
+  },
+},
+```
+
+---
+
+## Real-time task updates: `ctx.socket.update` (BETA)
+
+When the TaskManager is started with `expose` (WebSocket gateway), tasks triggered over WebSocket can send **progressive updates** to the client. Use `ctx.socket.update(data, progress)` inside a handler to push real-time payloads to the socket that requested the task.
+
+- **Who receives updates**: By default, only the client that emitted the task gets `task_update` / `task_retry` / `task_finished` for that task. To receive **all** task updates (e.g. for dashboards), connect with the header **`x-get-broadcast: true`**; that connection will get every `task_update`, `task_retry`, and `task_finished` for any task.
+- **Payload**: any JSON-serializable value (object, array, string, number). The client receives `{ type: 'task_update', taskId, data, progress }`.
 
 ### Use cases
 
@@ -91,13 +140,13 @@ When the TaskManager is started with `expose` (WebSocket gateway), tasks trigger
 await tm.registerHandler({
   event: 'generate-report',
   handler: async (task, ctx) => {
-    ctx.update({ step: 'started', progress: 0 });
+    ctx.socket.update('started', 0);
     const raw = await fetchData();
-    ctx.update({ step: 'fetching', progress: 33 });
+    ctx.socket.update('fetching', 33);
     const report = await buildReport(raw);
-    ctx.update({ step: 'building', progress: 66 });
+    ctx.socket.update('building', 66);
     await saveReport(report);
-    ctx.update({ step: 'done', progress: 100 });
+    ctx.socket.update('done', 100);
   },
 });
 ```
@@ -110,11 +159,53 @@ ws.onmessage = (event) => {
   if (msg.type === 'task_update') {
     console.log('Progress:', msg.data); // e.g. { step: 'building', progress: 66 }
   }
+  if (msg.type === 'task_retry') {
+    // Attempt failed; retry scheduled. Connection stays open for more updates/final task_finished.
+    console.log('Retry scheduled:', msg.error, 'retries left:', msg.retryCount);
+  }
   if (msg.type === 'task_finished') {
-    console.log('Task done:', msg.status);
+    console.log('Task done:', msg.status); // only sent when job completes or finally fails (no more retries)
   }
 };
 ```
+
+**Broadcast (all task updates):** Connect with header `x-get-broadcast: true` to receive every `task_update` / `task_retry` / `task_finished` for any task. Example from Node/Deno (browsers cannot set custom WebSocket headers; use a backend or a client that supports it):
+
+```ts
+import { WebSocket } from 'npm:ws'; // or Deno std ws
+const ws = new WebSocket('http://localhost:4000', {
+  headers: { 'x-get-broadcast': 'true' },
+});
+```
+
+---
+
+## Self-cleaning logs: `maxLogsPerTask`
+
+Set `processor.maxLogsPerTask` to cap the number of log entries per task. Oldest logs are trimmed when the limit is exceeded, keeping Redis self-cleaning and preventing unbounded growth.
+
+- **Behavior**: When logs exceed the limit, oldest entries are removed (FIFO).
+- **Redis**: When `maxLogsPerTask` is set, individual log keys (`queues:queue:taskId:logs:*`) are not written; logs live only in the task status blob, reducing Redis keys.
+
+```ts
+processor: {
+  maxLogsPerTask: 100,
+}
+```
+
+---
+
+## Redis: avoiding overload (production)
+
+These patterns can stress or crash a Redis container if left unbounded. Mitigate as below.
+
+| Risk | Cause | Mitigation |
+|------|--------|------------|
+| **Unbounded stream growth** | Queue streams and DLQ stream use `XADD` with no cap. Under high or long-running load, stream length and memory grow forever. | Set Redis `maxmemory` and eviction policy, and/or periodically trim streams (e.g. `XTRIM key MAXLEN ~ 10000`). Consider capping queue/DLQ streams if you add a config option. |
+| **Unbounded log keys** | When `maxLogsPerTask` is **not** set, each `task.logger()` call creates a Redis key `queues:queue:taskId:logs:uuid` and they are never deleted. | **Always set `processor.maxLogsPerTask`** (e.g. `100`) in production so logs live only in the task blob and per-log keys are not written. |
+| **Accumulation of completed/failed keys** | `queues:queueName:taskId:completed` and `queues:queueName:taskId:failed` are never deleted. Key count grows with every finished task. | Accept for moderate volume, or add a TTL/background cleanup for old completed/failed keys (e.g. SDK or cron). |
+
+**Recommended for production:** set `processor.maxLogsPerTask`, use Redis `maxmemory` + eviction, and monitor stream lengths and key count.
 
 ---
 
@@ -146,10 +237,11 @@ const tm = TaskManager.init({
       streamKey: 'remq-dlq',
       shouldSendToDLQ: (_, __, attempts) => attempts >= 3,
     },
+    maxLogsPerTask: 100,
   },
 });
 
-// Register handler (ctx.emit for new tasks; ctx.update for real-time WS updates when expose is set — see "Real-time task updates" above)
+// Register handler (ctx.emit for new tasks; ctx.socket.update for real-time WS updates when expose is set — see "Real-time task updates" above)
 await tm.registerHandler({
   handler: async (job, ctx) => {
     console.log('Processing:', job.data);

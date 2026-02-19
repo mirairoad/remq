@@ -27,7 +27,7 @@ export { Sdk } from './libs/sdk/mod.ts';
 export type {
   AdminJobData,
   ListJobsOptions,
-  JobStats,
+  TaskStats,
   QueueInfo,
 } from './types/admin.ts';
 

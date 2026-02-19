@@ -12,6 +12,14 @@ export interface UpdateFunction {
 }
 
 /**
+ * Context for the current task's WebSocket (when task was triggered via WS).
+ * Use ctx.socket.update() to stream progress to the client; no-op if no socket is tracking this task.
+ */
+export interface TaskSocketContext {
+  update: UpdateFunction;
+}
+
+/**
  * Handler function signature
  */
 export interface TaskHandler<T = unknown, D = unknown> {
@@ -22,7 +30,7 @@ export interface TaskHandler<T = unknown, D = unknown> {
       data?: D;
       logger?: (message: string | object) => Promise<void>;
     },
-    ctx: T & { emit: EmitFunction; update: UpdateFunction },
+    ctx: T & { emit: EmitFunction; socket: TaskSocketContext },
   ): Promise<void> | void;
 }
 
@@ -59,8 +67,7 @@ export interface TaskManagerOptions<T = unknown> {
   db: RedisConnection;
 
   /**
-   * Expose port for the task manager
-   * @default 4000
+   * Expose port for the WebSocket gateway (enables real-time task updates).
    */
   expose?: number;
 
@@ -82,13 +89,18 @@ export interface TaskManagerOptions<T = unknown> {
   streamdb?: RedisConnection;
 
   /**
-   * Processor options (retry, DLQ, debounce)
+   * Processor options (retry, DLQ, debounce, maxLogsPerTask)
    */
   processor?: {
     retry?: ProcessorOptions['retry'];
     dlq?: ProcessorOptions['dlq'];
     debounce?: ProcessorOptions['debounce'];
     ignoreConfigErrors?: boolean;
+    /**
+     * Max number of log entries to keep per task. Trims oldest entries; keeps Redis self-cleaning.
+     * @default undefined (no limit)
+     */
+    maxLogsPerTask?: number;
   };
 }
 
