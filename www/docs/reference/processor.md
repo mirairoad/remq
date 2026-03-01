@@ -30,8 +30,9 @@ Optional:
 - `dlq?: DLQConfig` - Dead Letter Queue policy (`streamKey`, `shouldSendToDLQ`).
 - `debounce?: number | DebounceConfig` - Debounce window in milliseconds; number is shorthand for `{ debounce }`.
 - `ignoreConfigErrors?: boolean` - Stored on the Processor instance. Default `true`.
-- `streamMaxLen?: number` - After each read+ACK, trim the queue stream to this length (XTRIM MAXLEN ~). Prevents unbounded stream growth and process memory blowup. Recommended in production (e.g. `10000`).
+- `streamMaxLen?: number` - Cap stream at add time (XADD MAXLEN ~) and after each read+ACK (XTRIM MAXLEN ~). Prevents unbounded stream growth and process memory blowup. Recommended in production (e.g. `10000`).
 - `readCount?: number` - Max messages per XREADGROUP batch (default `200`). Lower for large payloads to avoid process memory spikes.
+- `jobStateTtlSeconds?: number` - TTL in seconds for all job state keys (waiting, delayed, processing, completed, failed). Keys expire after this many seconds to prevent unbounded Redis key growth (e.g. `604800` for 7 days).
 
 #### RetryConfig
 

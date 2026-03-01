@@ -201,11 +201,13 @@ These patterns can stress or crash a Redis container if left unbounded. Mitigate
 
 | Risk | Cause | Mitigation |
 |------|--------|------------|
-| **Unbounded stream growth / process memory blowup** | Queue streams use `XADD` with no cap; consumer reads in batches. Unbounded streams can cause Redis and process memory to spike (e.g. 130MB → 3GB). | **Set `processor.streamMaxLen`** (e.g. `10000`). After each read+ACK the stream is trimmed (XTRIM MAXLEN ~), so the stream self-cleans. Optionally lower `processor.readCount` (default 200) if message payloads are large. |
-| **Unbounded log keys** | When `maxLogsPerTask` is **not** set, each `task.logger()` call creates a Redis key `queues:queue:taskId:logs:uuid` and they are never deleted. | **Always set `processor.maxLogsPerTask`** (e.g. `100`) in production so logs live only in the task blob and per-log keys are not written. |
-| **Accumulation of completed/failed keys** | `queues:queueName:taskId:completed` and `queues:queueName:taskId:failed` are never deleted. Key count grows with every finished task. | Accept for moderate volume, or add a TTL/background cleanup for old completed/failed keys (e.g. SDK or cron). |
+| **Unbounded stream growth / process memory blowup** | Queue streams grow with every emit/retry/cron; consumer reads in batches. Unbounded streams can cause Redis and process memory to spike (e.g. 130MB → 3GB). | **Set `processor.streamMaxLen`** (e.g. `10000`). XADD uses MAXLEN ~ at add time and XTRIM runs after each read+ACK. Lower `processor.readCount` if message payloads are large. |
+| **Logs and job state keys never expire** | Job state keys (waiting, delayed, processing, completed, failed) and logs in the job blob accumulate. (Per-entry log keys are no longer written; logs live only in the job blob.) | **Set `processor.jobStateTtlSeconds`** (e.g. `604800` for 7 days) so all job state keys expire. **Set `processor.maxLogsPerTask`** (e.g. `100`) to trim log entries inside the blob. |
+| **Redis server memory** | Redis can grow until OOM if no cap is set. | Set `maxmemory` and `maxmemory-policy` (e.g. `allkeys-lru`) in Redis config or at runtime: `CONFIG SET maxmemory 512mb` and `CONFIG SET maxmemory-policy allkeys-lru`. |
 
-**Recommended for production:** set `processor.maxLogsPerTask`, **`processor.streamMaxLen`** (e.g. `10000`), use Redis `maxmemory` + eviction, and monitor stream lengths and key count. If you see process memory spikes when loading remq, enable `streamMaxLen` and consider lowering `readCount` for large payloads.
+**Recommended for production:** set `processor.maxLogsPerTask`, **`processor.streamMaxLen`**, **`processor.jobStateTtlSeconds`** (e.g. 7 days), use Redis `maxmemory` + eviction, and monitor stream lengths and key count.
+
+**Quick wins (Redis server):** Cap memory and eviction so Redis does not OOM: `CONFIG SET maxmemory 512mb` and `CONFIG SET maxmemory-policy allkeys-lru`. Inspect key count: `DBSIZE`; key distribution: `SCAN` with pattern `queues:*` and `XLEN` on each `*-stream`.
 
 ---
 
@@ -238,7 +240,8 @@ const tm = TaskManager.init({
       shouldSendToDLQ: (_, __, attempts) => attempts >= 3,
     },
     maxLogsPerTask: 100,
-    streamMaxLen: 10000, // trim stream after each batch to avoid memory blowup
+    streamMaxLen: 10000, // cap stream at add time + trim after read
+    jobStateTtlSeconds: 604800, // 7 days; job state keys expire to prevent unbounded growth
   },
 });
 

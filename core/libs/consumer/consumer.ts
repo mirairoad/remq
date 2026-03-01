@@ -79,6 +79,10 @@ export class Consumer extends EventTarget {
    * Starts processing messages (like old worker processTasks)
    */
   async start(options: { signal?: AbortSignal } = {}): Promise<void> {
+    // Ensure consumer groups once at startup, not on every poll (avoids Redis round trip per stream per cycle)
+    for (const streamKey of this.streams) {
+      await this.streamReader.ensureConsumerGroup(streamKey);
+    }
     const { signal } = options;
     const controller = this.#processingController;
     this.#processingFinished = this.#processingFinished.then(() =>

@@ -30,7 +30,7 @@ export interface ProcessableMessage {
  */
 export interface DebounceConfig {
   /**
-   * Debounce window in seconds (prevents processing same message within window)
+   * Debounce window in milliseconds (prevents processing same message within window)
    * @default undefined (no debouncing)
    */
   debounce?: number;
@@ -114,8 +114,8 @@ export interface ProcessorOptions {
   dlq?: DLQConfig;
 
   /**
-   * Debounce window in seconds (prevents processing same message within window)
-   * Can be a number (simple API) or DebounceConfig object (advanced API)
+   * Debounce window in milliseconds (prevents processing same message within window).
+   * Can be a number (e.g. 60_000 for 1 minute) or DebounceConfig object (advanced API).
    * @default undefined (no debouncing)
    */
   debounce?: number | DebounceConfig;
@@ -138,4 +138,10 @@ export interface ProcessorOptions {
    * @default 200
    */
   readCount?: number;
+
+  /**
+   * TTL in seconds for all job state keys (waiting, delayed, processing, completed, failed). Prevents unbounded Redis key growth.
+   * @default undefined (no TTL)
+   */
+  jobStateTtlSeconds?: number;
 }

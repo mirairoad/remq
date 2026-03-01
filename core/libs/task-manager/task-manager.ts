@@ -213,18 +213,12 @@ export class TaskManager<T = unknown> {
     };
 
     const streamKey = `${queue}-stream`;
-
-    this.streamdb.xadd(
-      streamKey,
-      '*',
-      'data',
-      JSON.stringify(jobData),
-    ).catch((err: unknown) => {
+    this.#xadd(streamKey, JSON.stringify(jobData)).catch((err: unknown) => {
       console.error(`Error emitting job to queue ${queue}:`, err);
     });
 
     const stateKey = `queues:${queue}:${jobId}:${jobData.status}`;
-    this.db.set(stateKey, JSON.stringify(jobData)).catch((err: unknown) => {
+    this.#setJobState(stateKey, JSON.stringify(jobData)).catch((err: unknown) => {
       console.error(`Error storing job state:`, err);
     });
     return jobId;
@@ -258,6 +252,29 @@ export class TaskManager<T = unknown> {
       } catch (err) {
         console.error('taskFinished listener error:', err);
       }
+    }
+  }
+
+  /**
+   * Add entry to stream with optional MAXLEN to cap stream size at add time.
+   */
+  async #xadd(streamKey: string, dataJson: string): Promise<string | null> {
+    const maxLen = this.processorOptions?.streamMaxLen;
+    if (typeof maxLen === 'number' && maxLen > 0) {
+      return await this.streamdb.xadd(streamKey, 'MAXLEN', '~', maxLen, '*', 'data', dataJson);
+    }
+    return await this.streamdb.xadd(streamKey, '*', 'data', dataJson);
+  }
+
+  /**
+   * Set a job state key with optional TTL to prevent unbounded Redis key growth.
+   */
+  async #setJobState(key: string, value: string): Promise<void> {
+    const ttl = this.processorOptions?.jobStateTtlSeconds;
+    if (typeof ttl === 'number' && ttl > 0) {
+      await this.db.set(key, value, 'EX', ttl);
+    } else {
+      await this.db.set(key, value);
     }
   }
 
@@ -731,14 +748,7 @@ export class TaskManager<T = unknown> {
 
           jobEntry.logs?.push(logEntry);
           this.#trimLogs(jobEntry, maxLogsPerTask);
-
-          // Only write individual log keys when unbounded (avoids Redis growth when maxLogsPerTask is set)
-          if (maxLogsPerTask == null || maxLogsPerTask <= 0) {
-            await this.db.set(
-              `queues:${queueName}:${jobId}:logs:${crypto.randomUUID()}`,
-              JSON.stringify(logEntry),
-            );
-          }
+          // Logs live only in job blob (no per-entry Redis keys) to avoid key explosion
         };
       }
 
@@ -765,7 +775,7 @@ export class TaskManager<T = unknown> {
 
       const processingKey =
         `queues:${queueName}:${processingData.id}:${processingData.status}`;
-      await this.db.set(processingKey, JSON.stringify(processingData));
+      await this.#setJobState(processingKey, JSON.stringify(processingData));
 
       // Process the job (like old worker line 412); inject per-task socket for real-time WS updates
       const ctxWithUpdate = {
@@ -805,7 +815,7 @@ export class TaskManager<T = unknown> {
       ).catch(() => {});
       await this.db.del(processingKey);
       const completedKey = `queues:${queueName}:${completedData.id}:completed`;
-      await this.db.set(completedKey, JSON.stringify(completedData));
+      await this.#setJobState(completedKey, JSON.stringify(completedData));
       this.#notifyTaskFinished({
         taskId: jobId,
         queue: queueName,
@@ -830,12 +840,7 @@ export class TaskManager<T = unknown> {
         };
 
         // Re-emit to stream (like old worker line 473-478 - just xadd, no Redis key storage)
-        await this.streamdb.xadd(
-          `${queueName}-stream`,
-          '*',
-          'data',
-          JSON.stringify(newJob),
-        );
+        await this.#xadd(`${queueName}-stream`, JSON.stringify(newJob));
       }
     } catch (error: unknown) {
       // Handle failed state (like old worker line 493-585)
@@ -864,7 +869,7 @@ export class TaskManager<T = unknown> {
       if (!willRetry) {
         // Only persist failed state and notify WS when job is finally done (no more retries).
         const failedKey = `queues:${queueName}:${jobEntry.id}:failed`;
-        await this.db.set(failedKey, JSON.stringify(failedData));
+        await this.#setJobState(failedKey, JSON.stringify(failedData));
         this.#notifyTaskFinished({
           taskId: jobEntry.id,
           queue: queueName,
@@ -899,12 +904,7 @@ export class TaskManager<T = unknown> {
         };
         this.#trimLogs(retryJob, this.processorOptions?.maxLogsPerTask);
 
-        await this.streamdb.xadd(
-          `${queueName}-stream`,
-          '*',
-          'data',
-          JSON.stringify(retryJob),
-        );
+        await this.#xadd(`${queueName}-stream`, JSON.stringify(retryJob));
       }
 
       throw error; // Re-throw so Processor can handle

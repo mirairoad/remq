@@ -56,9 +56,7 @@ export class StreamReader {
   ): Promise<Message[]> {
     const streamKey = `${queueName}-stream`;
     const count = this.readCount;
-
-    // Ensure consumer group exists before reading
-    await this.ensureConsumerGroup(streamKey);
+    // Consumer groups are ensured once at start (ensureAllConsumerGroups), not on every poll
 
     try {
       // First try to claim any pending messages (like old worker line 661-692)

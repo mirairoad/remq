@@ -112,6 +112,11 @@ export interface TaskManagerOptions<T = unknown> {
      * @default 200
      */
     readCount?: number;
+    /**
+     * TTL in seconds for all job state keys (waiting, delayed, processing, completed, failed). Keys expire after this many seconds; prevents unbounded Redis key growth.
+     * @default undefined (no TTL; keys live forever)
+     */
+    jobStateTtlSeconds?: number;
   };
 }
 

@@ -14,13 +14,16 @@ export class Processor {
   private readonly streamdb: RedisConnection;
   private readonly retryConfig: ProcessorOptions['retry'];
   private readonly dlqConfig: ProcessorOptions['dlq'];
+  private readonly streamMaxLen?: number;
   private readonly debounceManager?: DebounceManager;
   private readonly ignoreConfigErrors: boolean;
+  #debounceCleanupIntervalId?: ReturnType<typeof setInterval>;
 
   constructor(options: ProcessorOptions) {
     this.streamdb = options.streamdb;
     this.retryConfig = options.retry;
     this.dlqConfig = options.dlq;
+    this.streamMaxLen = options.streamMaxLen;
     this.ignoreConfigErrors = options.ignoreConfigErrors ?? true;
 
     // Setup debounce if configured (DebounceManager expects seconds, not ms)
@@ -134,6 +137,17 @@ export class Processor {
   }
 
   /**
+   * Add entry to stream with optional MAXLEN to cap stream size at add time.
+   */
+  async #xadd(streamKey: string, dataJson: string): Promise<string | null> {
+    const maxLen = this.streamMaxLen;
+    if (typeof maxLen === 'number' && maxLen > 0) {
+      return await this.streamdb.xadd(streamKey, 'MAXLEN', '~', maxLen, '*', 'data', dataJson);
+    }
+    return await this.streamdb.xadd(streamKey, '*', 'data', dataJson);
+  }
+
+  /**
    * Re-queues a message to the stream (like old worker line 198-207)
    * Preserves original timestamp
    */
@@ -148,12 +162,7 @@ export class Processor {
       timestamp: originalTimestamp,
     };
 
-    await this.streamdb.xadd(
-      streamKey,
-      '*',
-      'data',
-      JSON.stringify(messageData),
-    );
+    await this.#xadd(streamKey, JSON.stringify(messageData));
   }
 
   /**
@@ -173,18 +182,18 @@ export class Processor {
       attempts,
     };
 
-    await this.streamdb.xadd(
-      dlqStreamKey,
-      '*',
-      'data',
-      JSON.stringify(dlqMessage),
-    );
+    await this.#xadd(dlqStreamKey, JSON.stringify(dlqMessage));
   }
 
   /**
    * Starts processing
    */
   async start(options?: { signal?: AbortSignal }): Promise<void> {
+    if (this.debounceManager) {
+      this.#debounceCleanupIntervalId = setInterval(() => {
+        this.debounceManager?.cleanup();
+      }, 5 * 60 * 1000); // every 5 minutes
+    }
     await this.consumer.start(options);
   }
 
@@ -192,6 +201,10 @@ export class Processor {
    * Stops processing
    */
   stop(): void {
+    if (this.#debounceCleanupIntervalId != null) {
+      clearInterval(this.#debounceCleanupIntervalId);
+      this.#debounceCleanupIntervalId = undefined;
+    }
     this.consumer.stop();
   }
 

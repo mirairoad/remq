@@ -37,7 +37,7 @@ const remq = TaskManager.init({
   expose: 4000, // WebSocket port; clients can send header x-get-broadcast: true to receive all task updates
   concurrency: 2, // the number of messages to process concurrently uses workers steal process strategy
   processor: { // [default] processor options
-    debounce: 1 * 60, // 100 minutes
+    debounce: 60 * 1000, // 1 minute (debounce is in ms; 60 minutes would be 60 * 60 * 1000)
     dlq: {
       streamKey: 'remq-dlq', // the stream key to send the failed messages to
       shouldSendToDLQ: (message, error, attempts) => {
@@ -50,7 +50,8 @@ const remq = TaskManager.init({
       // shouldRetry: (error, attempt) => true,
     },
     maxLogsPerTask: 100, // trim oldest logs; keeps Redis self-cleaning
-    streamMaxLen: 1000, // trim stream after each read+ACK to prevent unbounded growth and process memory blowup
+    streamMaxLen: 10000, // cap stream at add time + trim after read. Monitor: XLEN/MEMORY USAGE per stream if payloads are large
+    jobStateTtlSeconds: 604800, // 7 days; job state keys expire. Admin/SDK queries must handle missing keys (SCAN/GET)
     // readCount: 50, // optional: lower if message payloads are large (default 200)
   },
 });
