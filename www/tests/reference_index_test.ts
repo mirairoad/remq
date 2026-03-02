@@ -8,7 +8,7 @@ Deno.test("reference index lists all core APIs", async () => {
     "Remq",
     "Consumer",
     "Processor",
-    "Sdk",
+    "RemqAdmin",
   ];
 
   for (const entry of requiredEntries) {

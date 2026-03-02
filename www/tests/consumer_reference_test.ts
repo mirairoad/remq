@@ -44,7 +44,7 @@ Deno.test("Consumer reference matches current API", async () => {
     "const run = consumer.start()",
     "consumer.stop()",
     "await run",
-    "Sdk API",
+    "RemqAdmin API",
     "/reference/sdk",
   ];
 

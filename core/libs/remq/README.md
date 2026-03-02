@@ -114,6 +114,7 @@ taskManager.on('process-user', async (ctx) => {
 Create or retrieve the singleton Remq instance.
 
 **Options:**
+
 - `db: RedisConnection` - Redis connection for job storage
 - `ctx?: T` - Context object passed to handlers
 - `concurrency?: number` - Number of concurrent jobs (default: 1)
@@ -125,11 +126,13 @@ Create or retrieve the singleton Remq instance.
 Register a handler for an event/task. Sync, returns `this` for chaining. Event names support dot notation (e.g. `'host.sync'`, `'user.welcome'`).
 
 **Parameters:**
+
 - `event: string` - Event/task name
 - `handler: TaskHandler<TApp, D>` - Handler function receiving single `ctx: TaskContext<TApp, D>`
 - `options?: HandlerOptions` - `{ queue?, repeat?, attempts?, debounce? }`
 
 **Handler signature:**
+
 ```typescript
 (ctx: TaskContext<TApp, TData>) => Promise<void> | void
 ```
@@ -141,6 +144,7 @@ Register a handler for an event/task. Sync, returns `this` for chaining. Event n
 Emit/trigger a task/event. Returns job id.
 
 **Parameters:**
+
 - `event: string` - Event name
 - `data?: unknown` - Payload (default `{}`)
 - `options?: EmitOptions` - `queue` (default `'default'`), `id?`, `priority?`, `delay?`, `retryCount?`, `retryDelayMs?`, `repeat?`, `attempts?`
@@ -167,13 +171,7 @@ Stop processing jobs. Waits for active tasks to complete (via `drain()`).
 
 Wait for all active tasks to finish. Use before shutdown or when reconfiguring.
 
-### `pause(queue?)` / `resume(queue?)`
-
-Pause or resume queue(s). With no argument, pauses or resumes all registered queues; with a queue name, only that queue.
-
-### `isPaused(queue)`
-
-Returns whether the given queue is paused.
+**Queue control and job-finished:** Use `RemqAdmin` for `pause(queue?)`, `resume(queue?)`, `isPaused(queue)`, and `onJobFinished(cb)` — construct with `new RemqAdmin(db, remq)` to enable `onJobFinished`.
 
 ### `getContext()`
 
@@ -188,6 +186,7 @@ Handler function invoked for each job.
 **TaskContext fields:** `id`, `name`, `queue`, `status`, `retryCount`, `retriedAttempts`, `data`, `logger`, `emit`, `socket`, plus app context (TApp) merged onto `ctx`.
 
 **Where used:**
+
 - Passed to `on(event, handler, options?)` and stored per `queue:event`
 - Invoked inside Remq when processing messages in `processJob()`
 
@@ -198,6 +197,7 @@ Handler function invoked for each job.
 **EmitOptions:** `queue?` (default `'default'`), `id?`, `priority?`, `delay?` (Date), `retryCount?`, `retryDelayMs?`, `repeat?`, `attempts?`. `delay` replaces the previous `delayUntil`; internally mapped to run-at time.
 
 **Where used:**
+
 - Exposed as `Remq.emit()` and injected onto handler context as `ctx.emit`
 - Cron bootstrap in `on()` uses fire-and-forget `emit(event, {}, { queue, repeat, attempts })`
 
@@ -210,6 +210,7 @@ Options for `on(event, handler, options?)`: `queue?`, `repeat?`, `attempts?`, `d
 Options for `Remq.create()`.
 
 **Parameters:**
+
 - `db: RedisConnection` - Redis connection for job storage (required)
 - `expose?: number` - Port to expose a task-manager API (default: `4000`)
 - `ctx?: T` - Context object passed to handlers
@@ -218,12 +219,14 @@ Options for `Remq.create()`.
 - `processor?: { retry?, dlq?, debounce?, ignoreConfigErrors? }` - Processor policy options
 
 **Defaults (applied in constructor):**
+
 - `concurrency` defaults to `1`
 - `streamdb` defaults to `db`
 - `processor` defaults to `{}` when omitted
 - `ctx` defaults to `{}` and is augmented with `emit`
 
 **Where used:**
+
 - Stored in Remq constructor
 - `concurrency` passed into `Processor` consumer options
 - `streamdb` used by `emit()` and `ensureConsumerGroup()`

@@ -146,4 +146,4 @@ await run;
 
 - [Consumer API](/reference/consumer)
 - [Remq API](/reference/task-manager)
-- [Sdk API](/reference/sdk)
+- [RemqAdmin API](/reference/sdk)

@@ -173,4 +173,4 @@ await run;
 
 - [Processor API](/reference/processor)
 - [Remq API](/reference/task-manager)
-- [Sdk API](/reference/sdk)
+- [RemqAdmin API](/reference/sdk)

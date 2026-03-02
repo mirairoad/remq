@@ -1,4 +1,5 @@
-import { Remq } from '@core/libs/task-manager/mod.ts';
+import { Remq } from '@core/libs/remq/mod.ts';
+import { RemqAdmin } from '@core/libs/remq-admin/mod.ts';
 import { Redis } from 'ioredis';
 
 // Create Redis Option
@@ -52,4 +53,6 @@ const remq = Remq.create({
   },
 });
 
-export { remq };
+const admin = new RemqAdmin(db, remq);
+
+export { admin, remq };

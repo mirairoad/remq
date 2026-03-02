@@ -1,7 +1,7 @@
 import { remq } from './remq.plugin.ts';
 
 const TOTAL_JOBS = 1000;
-const SIMULATED_WORK_MS = 600; // change to 50 or 100 to simulate heavier I/O
+const SIMULATED_WORK_MS = 0; // change to 50 or 100 to simulate heavier I/O
 
 let processed = 0;
 let maxConcurrent = 0;
@@ -46,8 +46,7 @@ remq.on('on.request', async (ctx) => {
 
 // Start processor
 await remq.start();
-console.log(`queue paused: ${await remq.isPaused('default')}`);
-
+// await remq.stop();
 // Benchmark 1: emit throughput (fire-and-forget, no Promise.all needed)
 console.log(`\n── Emit Benchmark ────────────────────────────`);
 console.time('emit-1000-jobs');

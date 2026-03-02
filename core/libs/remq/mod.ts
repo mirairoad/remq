@@ -1,3 +1,11 @@
+/**
+ * Remq - High-level API for task/job management
+ *
+ * Simple, developer-friendly API built on top of Consumer + Processor
+ */
+
+// export { Remq, SUBSCRIBE_TASK_FINISHED } from './remq.ts';
+
 import { Processor } from '../processor/processor.ts';
 import { DebounceManager } from '../processor/debounce-manager.ts';
 import { createWsGateway } from '../gateways/ws.gateway.ts';
@@ -12,10 +20,21 @@ import type {
   TaskHandler,
   TaskManagerOptions,
   TaskSocketContext,
-  UpdateFunction,
 } from '../../types/index.ts';
 import { genJobIdSync } from './utils.ts';
 import { parseCronExpression } from 'cron-schedule';
+
+export type {
+  EmitFunction,
+  EmitOptions,
+  HandlerOptions,
+  TaskContext,
+  TaskHandler,
+  TaskManagerOptions,
+} from '../../types/remq.ts';
+
+/** Symbol for internal subscription (Sdk only). Not part of public API. */
+export const SUBSCRIBE_TASK_FINISHED = Symbol.for('remq.subscribeTaskFinished');
 
 /**
  * Remq - High-level API for managing tasks/jobs
@@ -199,11 +218,8 @@ export class Remq<
     return jobId;
   }
 
-  /**
-   * Subscribe to task completion/failure (e.g. for WebSocket reply).
-   * Returns an unsubscribe function.
-   */
-  onTaskFinished(
+  /** Internal: use RemqAdmin.onJobFinished() for public API. Keyed by symbol so not in public surface. */
+  [SUBSCRIBE_TASK_FINISHED](
     cb: (payload: {
       taskId: string;
       queue: string;
@@ -434,33 +450,35 @@ export class Remq<
         remq: this,
         onConnection: (ws, req) => this.handleWsConnection(ws, req),
       });
-      this.#taskFinishedUnsubscribe = this.onTaskFinished((payload) => {
-        const sockets = this.#getSocketsForTaskUpdate(payload.taskId);
-        if (!sockets.size) return;
-        const payloadStr = JSON.stringify({
-          type: 'task_finished',
-          taskId: payload.taskId,
-          queue: payload.queue,
-          status: payload.status,
-          error: payload.error,
-        });
-        for (const socket of sockets) {
-          try {
-            if (socket.readyState === WebSocket.OPEN) {
-              socket.send(payloadStr);
+      this.#taskFinishedUnsubscribe = this[SUBSCRIBE_TASK_FINISHED](
+        (payload) => {
+          const sockets = this.#getSocketsForTaskUpdate(payload.taskId);
+          if (!sockets.size) return;
+          const payloadStr = JSON.stringify({
+            type: 'task_finished',
+            taskId: payload.taskId,
+            queue: payload.queue,
+            status: payload.status,
+            error: payload.error,
+          });
+          for (const socket of sockets) {
+            try {
+              if (socket.readyState === WebSocket.OPEN) {
+                socket.send(payloadStr);
+              }
+            } catch (err) {
+              console.error('WS send task_finished error:', err);
             }
-          } catch (err) {
-            console.error('WS send task_finished error:', err);
           }
-        }
-        const socketsThatHadTask = this.taskIdToSockets.get(payload.taskId);
-        this.taskIdToSockets.delete(payload.taskId);
-        if (socketsThatHadTask) {
-          for (const ws of socketsThatHadTask) {
-            this.socketToTaskIds.get(ws)?.delete(payload.taskId);
+          const socketsThatHadTask = this.taskIdToSockets.get(payload.taskId);
+          this.taskIdToSockets.delete(payload.taskId);
+          if (socketsThatHadTask) {
+            for (const ws of socketsThatHadTask) {
+              this.socketToTaskIds.get(ws)?.delete(payload.taskId);
+            }
           }
-        }
-      });
+        },
+      );
       console.log(`Remq WS gateway listening on 0.0.0.0:${this.expose}`);
     }
 
@@ -562,39 +580,6 @@ export class Remq<
     if (this.processor) {
       await this.processor.waitForActiveTasks();
     }
-  }
-
-  /**
-   * Pause one or all queues (stops processing new jobs). With no arg, pauses all registered queues.
-   */
-  async pause(queue?: string): Promise<void> {
-    const queues = queue != null
-      ? [queue]
-      : Array.from(this.queueStreams).map((k) => k.replace(/-stream$/, ''));
-    for (const q of queues) {
-      await this.db.set(`queues:${q}:paused`, 'true');
-    }
-  }
-
-  /**
-   * Resume one or all queues. With no arg, resumes all registered queues.
-   */
-  async resume(queue?: string): Promise<void> {
-    const queues = queue != null
-      ? [queue]
-      : Array.from(this.queueStreams).map((k) => k.replace(/-stream$/, ''));
-    for (const q of queues) {
-      await this.db.del(`queues:${q}:paused`);
-    }
-  }
-
-  /**
-   * Check if a queue is paused.
-   */
-  async isPaused(queue: string): Promise<boolean> {
-    const pausedKey = `queues:${queue}:paused`;
-    const isPaused = await this.db.get(pausedKey);
-    return isPaused === 'true';
   }
 
   /**
@@ -717,7 +702,8 @@ export class Remq<
         streamMaxLen: this.processorOptions?.streamMaxLen,
         pollIntervalMs: this.processorOptions?.pollIntervalMs,
         read: {
-          count: this.processorOptions?.read?.count ?? this.processorOptions?.readCount ?? 200,
+          count: this.processorOptions?.read?.count ??
+            this.processorOptions?.readCount ?? 200,
           blockMs: this.processorOptions?.read?.blockMs,
         },
       },
@@ -792,7 +778,8 @@ export class Remq<
       if (this.debug) {
         const pid = typeof Deno !== 'undefined' && Deno.pid != null
           ? Deno.pid
-          : (typeof process !== 'undefined' && (process as { pid?: number }).pid) ?? '?';
+          : (typeof process !== 'undefined' &&
+            (process as { pid?: number }).pid) ?? '?';
         const workerId = this.#workerRunIndex++ % this.concurrency; // logical slot 0..concurrency-1
         console.log('[remq] PID', pid, 'worker_id', workerId, 'job_id', jobId);
       }

@@ -46,7 +46,7 @@ Deno.test("Processor reference matches current API", async () => {
     "const processor = new Processor",
     "processor.start()",
     "processor.stop()",
-    "Sdk API",
+    "RemqAdmin API",
     "/reference/sdk",
   ];
 

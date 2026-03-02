@@ -6,69 +6,67 @@ Main modules for task/job processing with Redis Streams.
 
 ### Remq (`libs/task-manager/remq.ts`)
 
-| Method | Signature |
-|--------|-----------|
-| `create` | `static create<TApp>(options): Remq<TApp>` |
-| `on` | `on(event, handler, options?): this` (sync, fluent) |
-| `emit` | `emit(event, data?, options?): string` (returns task id; queue in options) |
-| `start` | `start(): Promise<void>` |
-| `stop` | `stop(): Promise<void>` |
-| `pause` | `pause(queue?: string): Promise<void>` — pause one or all queues |
-| `resume` | `resume(queue?: string): Promise<void>` — resume one or all queues |
-| `drain` | `drain(): Promise<void>` — wait for active tasks to finish |
-| `isPaused` | `isPaused(queue: string): Promise<boolean>` |
+| Method     | Signature                                                                  |
+| ---------- | -------------------------------------------------------------------------- |
+| `create`   | `static create<TApp>(options): Remq<TApp>`                                 |
+| `on`       | `on(event, handler, options?): this` (sync, fluent)                        |
+| `emit`     | `emit(event, data?, options?): string` (returns task id; queue in options) |
+| `start`    | `start(): Promise<void>`                                                   |
+| `stop`     | `stop(): Promise<void>`                                                    |
+| `drain`    | `drain(): Promise<void>` — wait for active tasks to finish                 |
 
 ### Consumer (`libs/consumer/`)
 
-| Class / Method | Description |
-|----------------|-------------|
-| `Consumer` | Main consumer class |
-| `Consumer.constructor` | `(options: ConsumerOptions)` |
-| `Consumer.start` | `start(options?): Promise<void>` |
-| `Consumer.stop` | `stop(): void` |
-| `Consumer.waitForActiveTasks` | `waitForActiveTasks(): Promise<void>` |
-| `StreamReader` | Redis Stream reading with consumer groups |
-| `ConcurrencyPool` | Manages concurrent message processing |
+| Class / Method                | Description                               |
+| ----------------------------- | ----------------------------------------- |
+| `Consumer`                    | Main consumer class                       |
+| `Consumer.constructor`        | `(options: ConsumerOptions)`              |
+| `Consumer.start`              | `start(options?): Promise<void>`          |
+| `Consumer.stop`               | `stop(): void`                            |
+| `Consumer.waitForActiveTasks` | `waitForActiveTasks(): Promise<void>`     |
+| `StreamReader`                | Redis Stream reading with consumer groups |
+| `ConcurrencyPool`             | Manages concurrent message processing     |
 
 ### Processor (`libs/processor/`)
 
-| Class / Method | Description |
-|----------------|-------------|
-| `processor.maxLogsPerTask` | Trim oldest logs per task; keeps Redis self-cleaning (default: no limit) |
-| `Processor` | Policy layer wrapping Consumer |
-| `Processor.constructor` | `(options: ProcessorOptions)` |
-| `Processor.start` | `start(options?): Promise<void>` |
-| `Processor.stop` | `stop(): void` |
-| `Processor.waitForActiveTasks` | `waitForActiveTasks(): Promise<void>` |
-| `Processor.cleanup` | `cleanup(): void` |
-| `DebounceManager` | Per-handler debouncing |
+| Class / Method                 | Description                                                              |
+| ------------------------------ | ------------------------------------------------------------------------ |
+| `processor.maxLogsPerTask`     | Trim oldest logs per task; keeps Redis self-cleaning (default: no limit) |
+| `Processor`                    | Policy layer wrapping Consumer                                           |
+| `Processor.constructor`        | `(options: ProcessorOptions)`                                            |
+| `Processor.start`              | `start(options?): Promise<void>`                                         |
+| `Processor.stop`               | `stop(): void`                                                           |
+| `Processor.waitForActiveTasks` | `waitForActiveTasks(): Promise<void>`                                    |
+| `Processor.cleanup`            | `cleanup(): void`                                                        |
+| `DebounceManager`              | Per-handler debouncing                                                   |
 
-### Sdk (`libs/sdk/`)
+### RemqAdmin (`libs/sdk/`)
 
-| Method | Description |
-|--------|-------------|
-| `getJob` | `getJob(jobId, queue): Promise<AdminJobData \| null>` |
-| `listJobs` | `listJobs(options?): Promise<AdminJobData[]>` |
-| `deleteJob` | `deleteJob(jobId, queue): Promise<void>` |
-| `retryJob` | `retryJob(jobId, queue): Promise<AdminJobData \| null>` |
-| `cancelJob` | `cancelJob(jobId, queue): Promise<boolean>` |
-| `getQueueStats` | `getQueueStats(queue): Promise<TaskStats>` |
-| `getQueues` | `getQueues(): Promise<string[]>` |
-| `getQueuesInfo` | `getQueuesInfo(): Promise<QueueInfo[]>` |
-| `pause` | `pause(queue?): Promise<void>` |
-| `resume` | `resume(queue?): Promise<void>` |
-| `isPaused` | `isPaused(queue): Promise<boolean>` |
-| `pauseTask` | `pauseTask(taskId, queue): Promise<AdminJobData \| null>` |
-| `resumeTask` | `resumeTask(taskId, queue): Promise<AdminJobData \| null>` |
+| Method          | Description                                                |
+| --------------- | ---------------------------------------------------------- |
+| `getJob`        | `getJob(jobId, queue): Promise<Job \| null>`               |
+| `listJobs`      | `listJobs(options?): Promise<Job[]>`                       |
+| `deleteJob`     | `deleteJob(jobId, queue): Promise<void>`                   |
+| `retryJob`      | `retryJob(jobId, queue): Promise<Job \| null>`              |
+| `cancelJob`     | `cancelJob(jobId, queue): Promise<boolean>`                |
+| `getQueueStats` | `getQueueStats(queue): Promise<QueueStats>`                 |
+| `getQueues`     | `getQueues(): Promise<string[]>`                            |
+| `getQueuesInfo` | `getQueuesInfo(): Promise<QueueInfo[]>`                     |
+| `pause`         | `pause(queue?): Promise<void>`                            |
+| `resume`        | `resume(queue?): Promise<void>`                            |
+| `isPaused`      | `isPaused(queue): Promise<boolean>`                        |
+| `onJobFinished` | `onJobFinished(cb): () => void` (requires `new RemqAdmin(db, remq)`) |
+| `pauseJob`      | `pauseJob(jobId, queue): Promise<Job \| null>`              |
+| `resumeJob`     | `resumeJob(jobId, queue): Promise<Job \| null>`             |
 
 ### Types
 
-| Type | Module |
-|------|--------|
+| Type                                                                                                                  | Module                  |
+| --------------------------------------------------------------------------------------------------------------------- | ----------------------- |
 | `TaskManagerOptions`, `TaskHandler`, `TaskContext`, `EmitFunction`, `EmitOptions`, `HandlerOptions`, `UpdateFunction` | `types/task-manager.ts` |
-| `ConsumerOptions`, `Message`, `MessageHandler`, `MessageContext`, `ConsumerEvents` | `types/` |
-| `ProcessorOptions`, `ProcessableMessage`, `RetryConfig`, `DLQConfig`, `DebounceConfig` | `types/processor.ts` |
-| `AdminJobData`, `ListJobsOptions`, `TaskStats`, `QueueInfo` | `types/admin.ts` |
+| `ConsumerOptions`, `Message`, `MessageHandler`, `MessageContext`, `ConsumerEvents`                                    | `types/`                |
+| `ProcessorOptions`, `ProcessableMessage`, `RetryConfig`, `DLQConfig`, `DebounceConfig`                                | `types/processor.ts`    |
+| `Job`, `Task`, `ListOptions`, `QueueStats`, `QueueInfo`                                                                 | `types/admin.ts`        |
 
 ---
 
@@ -78,18 +76,18 @@ Retry behavior depends on options at two levels. Both must allow retries.
 
 ### Per-task level (`emit` / `on` options)
 
-| Option | Role |
-|--------|------|
+| Option                     | Role                                                         |
+| -------------------------- | ------------------------------------------------------------ |
 | `attempts` or `retryCount` | Number of retries for this task (use one; they are the same) |
-| `retryDelayMs` | Delay before each retry (ms) |
+| `retryDelayMs`             | Delay before each retry (ms)                                 |
 
 ### Processor level (`processor.retry`)
 
-| Option | Role |
-|--------|------|
-| `maxRetries` | Global switch: retries happen only if > 0 |
-| `retryDelayMs` | Default delay before retries (overridden by per-task `retryDelayMs`) |
-| `shouldRetry` | `(error: Error, attempt: number) => boolean` — filter which errors to retry; return `false` to skip retry (e.g. for validation errors) |
+| Option         | Role                                                                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `maxRetries`   | Global switch: retries happen only if > 0                                                                                              |
+| `retryDelayMs` | Default delay before retries (overridden by per-task `retryDelayMs`)                                                                   |
+| `shouldRetry`  | `(error: Error, attempt: number) => boolean` — filter which errors to retry; return `false` to skip retry (e.g. for validation errors) |
 
 ### Common mistakes
 
@@ -197,11 +195,11 @@ processor: {
 
 These patterns can stress or crash a Redis container if left unbounded. Mitigate as below.
 
-| Risk | Cause | Mitigation |
-|------|--------|------------|
-| **Unbounded stream growth / process memory blowup** | Queue streams grow with every emit/retry/cron; consumer reads in batches. Unbounded streams can cause Redis and process memory to spike (e.g. 130MB → 3GB). | **Set `processor.streamMaxLen`** (e.g. `10000`). XADD uses MAXLEN ~ at add time and XTRIM runs after each read+ACK. Lower `processor.readCount` if message payloads are large. |
-| **Logs and job state keys never expire** | Job state keys (waiting, delayed, processing, completed, failed) and logs in the job blob accumulate. (Per-entry log keys are no longer written; logs live only in the job blob.) | **Set `processor.jobStateTtlSeconds`** (e.g. `604800` for 7 days) so all job state keys expire. **Set `processor.maxLogsPerTask`** (e.g. `100`) to trim log entries inside the blob. |
-| **Redis server memory** | Redis can grow until OOM if no cap is set. | Set `maxmemory` and `maxmemory-policy` (e.g. `allkeys-lru`) in Redis config or at runtime: `CONFIG SET maxmemory 512mb` and `CONFIG SET maxmemory-policy allkeys-lru`. |
+| Risk                                                | Cause                                                                                                                                                                             | Mitigation                                                                                                                                                                           |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Unbounded stream growth / process memory blowup** | Queue streams grow with every emit/retry/cron; consumer reads in batches. Unbounded streams can cause Redis and process memory to spike (e.g. 130MB → 3GB).                       | **Set `processor.streamMaxLen`** (e.g. `10000`). XADD uses MAXLEN ~ at add time and XTRIM runs after each read+ACK. Lower `processor.readCount` if message payloads are large.       |
+| **Logs and job state keys never expire**            | Job state keys (waiting, delayed, processing, completed, failed) and logs in the job blob accumulate. (Per-entry log keys are no longer written; logs live only in the job blob.) | **Set `processor.jobStateTtlSeconds`** (e.g. `604800` for 7 days) so all job state keys expire. **Set `processor.maxLogsPerTask`** (e.g. `100`) to trim log entries inside the blob. |
+| **Redis server memory**                             | Redis can grow until OOM if no cap is set.                                                                                                                                        | Set `maxmemory` and `maxmemory-policy` (e.g. `allkeys-lru`) in Redis config or at runtime: `CONFIG SET maxmemory 512mb` and `CONFIG SET maxmemory-policy allkeys-lru`.               |
 
 **Recommended for production:** set `processor.maxLogsPerTask`, **`processor.streamMaxLen`**, **`processor.jobStateTtlSeconds`** (e.g. 7 days), use Redis `maxmemory` + eviction, and monitor stream lengths and key count.
 
