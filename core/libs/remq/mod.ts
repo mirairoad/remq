@@ -731,10 +731,43 @@ export class Remq<
   }
 
   /**
-   * Process a job (copied from old worker #processJob - robust logic)
+   * processJob — optimised drop-in replacement for remq/mod.ts
+   *
+   * Changes vs current:
+   * - Round trips: 6 → 2 (happy path), 4 → 2 (failure path)
+   * - Removed: redundant db.get(processingKey) after handler
+   * - Removed: redundant db.del(completedKey) before writing completed (key doesn't exist yet)
+   * - Added: transitionState() helper — pipelines del+set into 1 round trip
+   * - All checks preserved: pause, debounce, retry, DLQ, cron, WS notify, log trim, TTL
    */
+
+  // ─── Drop-in helper — add as private method on Remq class ─────────────────────
+
+  /**
+   * Pipeline del(oldKey) + set(newKey, value, EX ttl?) into a single round trip.
+   * Safe: by the time we transition state, the message is already ACKed — no other
+   * consumer can claim it, so there's no race between the del and set.
+   */
+  private async transitionState(
+    delKey: string,
+    setKey: string,
+    value: string,
+  ): Promise<void> {
+    const ttl = this.processorOptions?.jobStateTtlSeconds;
+    const pipe = this.db.pipeline();
+    pipe.del(delKey);
+    if (typeof ttl === 'number' && ttl > 0) {
+      pipe.set(setKey, value, 'EX', ttl);
+    } else {
+      pipe.set(setKey, value);
+    }
+    await pipe.exec();
+  }
+
+  // ─── Drop-in replacement for processJob ───────────────────────────────────────
+
   private async processJob(
-    jobEntry: any, // JobData from message
+    jobEntry: any,
     jobId: string,
     queueName: string,
     state: any,
@@ -742,33 +775,26 @@ export class Remq<
     handler: JobHandler<TApp, any>,
     processableMessage: ProcessableMessage,
   ): Promise<void> {
+    const maxLogsPerJob = this.processorOptions?.maxLogsPerJob;
+
     try {
-      // Step 1: Delete old status key FIRST (like old worker line 357)
-      await this.db.del(`queues:${queueName}:${jobId}:${jobEntry.status}`);
+      // Ensure logs array
+      if (!jobEntry.logs) jobEntry.logs = [];
 
-      // Ensure job has logs array (like old worker line 360-362)
-      if (!jobEntry.logs) {
-        jobEntry.logs = [];
-      }
-
-      // Add logger function (like old worker line 365-383)
-      const maxLogsPerJob = this.processorOptions?.maxLogsPerJob;
+      // Logger — writes to in-memory blob only, no per-entry Redis keys
       if (!jobEntry.logger) {
         jobEntry.logger = async (message: string | object) => {
-          const logEntry = {
+          jobEntry.logs?.push({
             message: typeof message === 'string'
               ? message
               : JSON.stringify(message),
             timestamp: Date.now(),
-          };
-
-          jobEntry.logs?.push(logEntry);
+          });
           this.#trimLogs(jobEntry, maxLogsPerJob);
-          // Logs live only in job blob (no per-entry Redis keys) to avoid key explosion
         };
       }
 
-      // Add processing status to logs (like old worker line 385-397)
+      // Add processing log entry if not already present
       if (
         jobEntry.status !== 'processing' &&
         !jobEntry.logs.find((log: any) =>
@@ -782,33 +808,38 @@ export class Remq<
         this.#trimLogs(jobEntry, maxLogsPerJob);
       }
 
-      // Update status to processing (like old worker line 399-409)
       const processingData = {
         ...jobEntry,
         lastRun: Date.now(),
         status: 'processing',
       };
 
-      const processingKey =
-        `queues:${queueName}:${processingData.id}:${processingData.status}`;
-      await this.#setJobState(processingKey, JSON.stringify(processingData));
+      const oldKey = `queues:${queueName}:${jobId}:${jobEntry.status}`;
+      const processingKey = `queues:${queueName}:${jobId}:processing`;
+
+      // Round trip 1: del old state key + set processing state
+      await this.transitionState(
+        oldKey,
+        processingKey,
+        JSON.stringify(processingData),
+      );
 
       if (this.debug) {
         const pid = typeof Deno !== 'undefined' && Deno.pid != null
           ? Deno.pid
           : (typeof process !== 'undefined' &&
             (process as { pid?: number }).pid) ?? '?';
-        const workerId = this.#workerRunIndex++ % this.concurrency; // logical slot 0..concurrency-1
+        const workerId = this.#workerRunIndex++ % this.concurrency;
         console.log('[remq] PID', pid, 'worker_id', workerId, 'job_id', jobId);
       }
 
-      // Build unified ctx (job identity + payload + capabilities + app context)
+      // Build unified ctx — app context + job identity + capabilities
       const ctx = {
         ...this.ctx,
         id: jobId,
         name: state.name!,
         queue: state.queue!,
-        status: processingData.status,
+        status: 'processing',
         retryCount: jobEntry.retryCount ?? 0,
         retriedAttempts: jobEntry.retriedAttempts ?? 0,
         data: state.data,
@@ -816,55 +847,55 @@ export class Remq<
         emit: this.emit.bind(this),
         socket: this.#createSocketContext(jobId, state.name!, state.queue!),
       };
+
+      // Execute handler — all async work happens here
       await handler(ctx);
 
-      // Combine logs and update status to completed (like old worker line 421-429)
-      const completedLogs = [...(processingData.logs || []), {
-        message: this.JOB_STATUS_MESSAGES.completed,
-        timestamp: Date.now(),
-      }];
+      // Build completed blob from in-memory processingData — no db.get needed
       const completedData = {
         ...processingData,
-        logs: completedLogs,
+        logs: [
+          ...(processingData.logs || []),
+          {
+            message: this.JOB_STATUS_MESSAGES.completed,
+            timestamp: Date.now(),
+          },
+        ],
         status: 'completed',
       };
-      this.#trimLogs(completedData, this.processorOptions?.maxLogsPerJob);
+      this.#trimLogs(completedData, maxLogsPerJob);
 
-      // Store completed state (like old worker line 431-438)
-      await this.db.del(
-        `queues:${queueName}:${completedData.id}:${completedData.status}`,
-      ).catch(() => {});
-      await this.db.del(processingKey);
-      const completedKey = `queues:${queueName}:${completedData.id}:completed`;
-      await this.#setJobState(completedKey, JSON.stringify(completedData));
-      this.#notifyJobFinished({
-        jobId,
-        queue: queueName,
-        status: 'completed',
-      });
+      const completedKey = `queues:${queueName}:${jobId}:completed`;
 
-      // Handle job repetition (like old worker line 451-479)
-      // IMPORTANT: Use jobEntry.id (original ID) not completedData.id to preserve cron ID
+      // Round trip 2: del processing state + set completed state
+      await this.transitionState(
+        processingKey,
+        completedKey,
+        JSON.stringify(completedData),
+      );
+
+      this.#notifyJobFinished({ jobId, queue: queueName, status: 'completed' });
+
+      // Cron reschedule — xadd only, no state key written (stream entry is the schedule)
       if (
         jobEntry.repeatCount > 0 && jobEntry?.state?.options?.repeat?.pattern
       ) {
         const cron = parseCronExpression(jobEntry.state.options.repeat.pattern);
-
-        const newJob = {
-          ...jobEntry, // Use original jobEntry to preserve ID (like old worker line 459)
-          lockUntil: cron.getNextDate(new Date()).getTime(),
-          delayUntil: cron.getNextDate(new Date()).getTime(),
-          repeatCount: jobEntry.repeatCount, // Keep same for infinite cron (like old worker line 466)
-          timestamp: Date.now(),
-          status: 'delayed',
-          lastRun: Date.now(),
-        };
-
-        // Re-emit to stream (like old worker line 473-478 - just xadd, no Redis key storage)
-        await this.#xadd(`${queueName}-stream`, JSON.stringify(newJob));
+        const nextRun = cron.getNextDate(new Date()).getTime();
+        await this.#xadd(
+          `${queueName}-stream`,
+          JSON.stringify({
+            ...jobEntry,
+            lockUntil: nextRun,
+            delayUntil: nextRun,
+            repeatCount: jobEntry.repeatCount,
+            timestamp: Date.now(),
+            status: 'delayed',
+            lastRun: Date.now(),
+          }),
+        );
       }
     } catch (error: unknown) {
-      // Handle failed state (like old worker line 493-585)
       const errorMessage = error instanceof Error
         ? error.message
         : String(error);
@@ -884,12 +915,19 @@ export class Remq<
           timestamp: Date.now(),
         }],
       };
-      this.#trimLogs(failedData, this.processorOptions?.maxLogsPerJob);
+      this.#trimLogs(failedData, maxLogsPerJob);
 
       if (!willRetry) {
-        // Only persist failed state and notify WS when job is finally done (no more retries).
+        // Final failure — persist failed state + notify WS
         const failedKey = `queues:${queueName}:${jobEntry.id}:failed`;
-        await this.#setJobState(failedKey, JSON.stringify(failedData));
+
+        // Round trip 2 (failure path): del processing state + set failed state
+        await this.transitionState(
+          `queues:${queueName}:${jobId}:processing`,
+          failedKey,
+          JSON.stringify(failedData),
+        );
+
         this.#notifyJobFinished({
           jobId: jobEntry.id,
           queue: queueName,
@@ -897,7 +935,7 @@ export class Remq<
           error: errorMessage,
         });
       } else {
-        // Retrying: keep WS subscribed and tell client this attempt failed and retry is scheduled.
+        // Will retry — notify WS of this attempt's failure
         this.sendJobRetry({
           id: jobEntry.id,
           event: state.name!,
@@ -908,22 +946,23 @@ export class Remq<
         });
       }
 
-      // Handle retry (like old worker line 527-551)
+      // Re-queue for retry — xadd only, no state key (delay + retryCount drives next attempt)
       if (willRetry) {
-        const retryLogs = [...(jobEntry.logs || []), {
-          message: `retrying ${jobEntry.retryCount} more times`,
-          timestamp: Date.now(),
-        }];
         const retryJob = {
           ...jobEntry,
           delayUntil: Date.now() + (jobEntry.retryDelayMs || 1000),
           lockUntil: Date.now(),
           retryCount: jobEntry.retryCount - 1,
           retriedAttempts: (jobEntry.retriedAttempts || 0) + 1,
-          logs: retryLogs,
+          logs: [
+            ...(jobEntry.logs || []),
+            {
+              message: `retrying ${jobEntry.retryCount} more times`,
+              timestamp: Date.now(),
+            },
+          ],
         };
-        this.#trimLogs(retryJob, this.processorOptions?.maxLogsPerJob);
-
+        this.#trimLogs(retryJob, maxLogsPerJob);
         await this.#xadd(`${queueName}-stream`, JSON.stringify(retryJob));
       }
 

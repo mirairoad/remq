@@ -1,0 +1,278 @@
+/* remq docs site — shared overrides */
+
+/* §13 CSS variables */
+:root {
+  --accent: #e8ff47;
+  --bg: #0a0a0a;
+  --surface: #111111;
+  --border: #1e1e1e;
+  --muted: #666666;
+}
+
+/* §14 Dark theme base */
+body {
+  background: var(--bg);
+  color: #e8e8e8;
+}
+
+.navbar {
+  background: rgba(10, 10, 10, 0.9);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+
+.navbar-item,
+.navbar-link {
+  color: #e8e8e8;
+}
+
+.navbar-item:hover,
+.navbar-link:hover {
+  background: var(--surface);
+  color: var(--accent);
+}
+
+.navbar-burger {
+  color: #e8e8e8;
+}
+
+.hero {
+  background: var(--bg);
+}
+
+.hero-body {
+  background: var(--bg);
+}
+
+.footer {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.footer a {
+  color: var(--accent);
+}
+
+.table {
+  background: var(--surface);
+  color: #e8e8e8;
+}
+
+.table thead th {
+  background: var(--surface);
+  border-color: var(--border);
+  color: #e8e8e8;
+}
+
+.table td,
+.table th {
+  border-color: var(--border);
+  color: #e8e8e8;
+}
+
+.table tbody tr:hover {
+  background: rgba(232, 255, 71, 0.05);
+}
+
+.box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: #e8e8e8;
+}
+
+/* §15 Code blocks */
+.code-block {
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 0.5rem 0;
+}
+
+.code-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: #161b22;
+  border-bottom: 1px solid var(--border);
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.code-header .dots {
+  display: flex;
+  gap: 6px;
+}
+
+.code-header .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.code-header .dot.red { background: #ff5f56; }
+.code-header .dot.yellow { background: #ffbd2e; }
+.code-header .dot.green { background: #27c93f; }
+
+.code-block pre {
+  margin: 0;
+  padding: 1rem;
+  overflow-x: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+/* Token colors */
+.tok-k { color: #ff6b6b; }   /* keywords */
+.tok-fn { color: #e8ff47; }  /* functions */
+.tok-s { color: #47ff8a; }   /* strings */
+.tok-t { color: #ff6b35; }   /* types */
+.tok-c { color: #555; font-style: italic; }  /* comments */
+.tok-n { color: #e8e8e8; }   /* default */
+
+/* §16 Ticker animation */
+.ticker-wrap {
+  overflow: hidden;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 0.5rem 0;
+}
+
+.ticker-track {
+  display: flex;
+  gap: 3rem;
+  animation: ticker 30s linear infinite;
+  white-space: nowrap;
+}
+
+@keyframes ticker {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.ticker-item {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+/* §17 Bar chart */
+.bar-chart {
+  margin: 1rem 0;
+}
+
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.bar-label {
+  min-width: 80px;
+  font-size: 0.9rem;
+}
+
+.bar-track {
+  flex: 1;
+  height: 24px;
+  background: var(--surface);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 4px;
+  transition: width 0.6s ease-out;
+}
+
+.bar-fill.remq {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.bar-fill.others {
+  background: var(--muted);
+}
+
+.bar-value {
+  min-width: 60px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* §18 Sidebar (docs) */
+.docs-sidebar {
+  position: sticky;
+  top: 60px;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+}
+
+.docs-sidebar .menu-label {
+  text-transform: uppercase;
+  font-family: ui-monospace, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+
+.docs-sidebar .menu-list a {
+  color: #b0b0b0;
+  border-radius: 4px;
+}
+
+.docs-sidebar .menu-list a:hover {
+  background: var(--surface);
+  color: var(--accent);
+}
+
+.docs-sidebar .menu-list a.is-active {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* §19 Scroll animations */
+.anim {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.anim.visible {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+/* §20 Logo placeholder */
+#site-logo {
+  display: none;
+  max-height: 2rem;
+  width: auto;
+}
+
+/* Show logo when src is set (override in HTML or via JS) */
+#site-logo[src]:not([src=""]) {
+  display: block;
+}
+
+/* Accent highlights for remq column in comparison table */
+.table .col-remq {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* Section anchors for docs */
+.docs-content section {
+  scroll-margin-top: 80px;
+}
