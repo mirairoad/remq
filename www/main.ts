@@ -1,14 +1,14 @@
 /**
- * Serves the www site (pages + assets) over HTTP.
- * Version badge and doc version are injected from www/deno.json (synced from core when run in monorepo).
- * Run from repo root: deno run -A www/main.ts
- * Or from www: deno run -A main.ts
- * In Docker: COPY www/ . puts files in /app; resolution is relative to where main.ts lives.
+ * Serves the www site with Hono.
+ * Version from www/deno.json (synced from core when run in monorepo).
+ * Run: deno run -A main.ts  or  deno task serve
+ * Docker: COPY www/ . → files at /app, BASE is file:///app/
  */
 
-import { fromFileUrl, join } from "@std/path";
+import { type Context, Hono } from "hono";
+import index from "./pages/index.html" with { type: "text" };
+import docs from "./pages/docs.html" with { type: "text" };
 
-const SCRIPT_DIR = fromFileUrl(new URL(".", import.meta.url));
 const BASE = new URL(".", import.meta.url);
 const WWW_DENO_JSON = new URL("deno.json", BASE);
 const CORE_DENO_JSON = new URL("../core/deno.json", BASE);
@@ -23,7 +23,6 @@ function getRemqVersion(): string {
   }
 }
 
-// When core exists (monorepo), overwrite www/deno.json version so shipped www has it
 try {
   const coreJson = JSON.parse(Deno.readTextFileSync(CORE_DENO_JSON));
   const coreVersion = coreJson?.version;
@@ -36,89 +35,104 @@ try {
     );
   }
 } catch {
-  // No core (shipped www only) — use www/deno.json as-is
+  /* no core — use www/deno.json as-is */
 }
 
 const REMQ_VERSION = getRemqVersion();
 
-const MIME: Record<string, string> = {
-  ".html": "text/html",
-  ".css": "text/css",
-  ".js": "application/javascript",
-  ".ico": "image/x-icon",
-  ".png": "image/png",
-  ".svg": "image/svg+xml",
-};
-
-function getMime(pathname: string): string {
-  if (!pathname || pathname === "/" || pathname.endsWith(".html")) {
-    return "text/html";
-  }
-  const ext = pathname.includes(".") ? pathname.replace(/.*\./, ".") : "";
-  return MIME[ext] ?? "application/octet-stream";
+async function readFile(path: string): Promise<Uint8Array> {
+  return await Deno.readFile(new URL(path, BASE));
 }
 
-/** Resolve request path to a file path relative to script directory (works in Docker: /app/main.ts → /app/pages/...). */
-function resolvePath(pathname: string): string | null {
-  const normalized = pathname.replace(/^\/+/, "").replace(/\/+/g, "/");
-  if (normalized.includes("..")) return null;
-
-  if (normalized === "" || normalized === "index.html") {
-    return join(SCRIPT_DIR, "pages", "index.html");
-  }
-  if (normalized === "docs.html") return join(SCRIPT_DIR, "pages", "docs.html");
-  if (normalized === "style.css") {
-    return join(SCRIPT_DIR, "assets", "style", "style.css");
-  }
-  if (normalized === "script.js") {
-    return join(SCRIPT_DIR, "assets", "js", "script.js");
-  }
-  if (normalized === "favicon.ico" || normalized === "public/favicon.ico") {
-    return join(SCRIPT_DIR, "assets", "img", "favicon.ico");
-  }
-  if (normalized === "logo.png" || normalized === "public/logo.png") {
-    return join(SCRIPT_DIR, "assets", "img", "logo.png");
-  }
-  if (normalized.startsWith("assets/")) return join(SCRIPT_DIR, normalized);
-  return null;
+function injectVersion(html: string): string {
+  return html.replaceAll("{{REMQ_VERSION}}", REMQ_VERSION);
 }
 
-async function handle(req: Request): Promise<Response> {
-  const url = new URL(req.url);
-  const pathname = url.pathname;
-  const filePath = resolvePath(pathname);
+const app = new Hono();
 
-  if (!filePath) {
-    return new Response("Not Found", { status: 404 });
-  }
+app.get("/", (c: Context) => {
+  return c.html(injectVersion(index));
+});
 
+app.get("/docs", (c: Context) => {
+  return c.html(injectVersion(docs));
+});
+
+app.get("/style.css", async (_c: Context) => {
+  const body = await readFile("assets/style/style.css");
+  return new Response(body as BodyInit, {
+    headers: {
+      "Content-Type": "text/css",
+      "Cache-Control": "public, max-age=3600",
+    },
+  });
+});
+
+app.get("/script.js", async (_c: Context) => {
+  const body = await readFile("assets/js/script.js");
+  return new Response(body as BodyInit, {
+    headers: {
+      "Content-Type": "application/javascript",
+      "Cache-Control": "public, max-age=3600",
+    },
+  });
+});
+
+app.get("/favicon.ico", async (_c: Context) => {
+  const body = await readFile("assets/img/favicon.ico");
+  return new Response(body as BodyInit, {
+    headers: { "Content-Type": "image/x-icon" },
+  });
+});
+
+app.get("/public/favicon.ico", async (_c: Context) => {
+  const body = await readFile("assets/img/favicon.ico");
+  return new Response(body as BodyInit, {
+    headers: { "Content-Type": "image/x-icon" },
+  });
+});
+
+app.get("/logo.png", async (_c: Context) => {
+  const body = await readFile("assets/img/logo.png");
+  return new Response(body as BodyInit, {
+    headers: { "Content-Type": "image/png" },
+  });
+});
+
+app.get("/public/logo.png", async (_c: Context) => {
+  const body = await readFile("assets/img/logo.png");
+  return new Response(body as BodyInit, {
+    headers: { "Content-Type": "image/png" },
+  });
+});
+
+app.get("/assets/*", async (c: Context) => {
+  const path = c.req.path.replace(/^\/assets/, "assets");
   try {
-    const mime = getMime(pathname);
-    let body: Uint8Array | string = await Deno.readFile(filePath);
-
-    if (mime === "text/html") {
-      const html = new TextDecoder().decode(body);
-      body = html.replaceAll("{{REMQ_VERSION}}", REMQ_VERSION);
-    }
-
+    const body = await readFile(path);
+    const ext = path.replace(/.*\./, "");
+    const mimes: Record<string, string> = {
+      css: "text/css",
+      js: "application/javascript",
+      ico: "image/x-icon",
+      png: "image/png",
+      svg: "image/svg+xml",
+    };
+    const type = mimes[ext] ?? "application/octet-stream";
     return new Response(body as BodyInit, {
       headers: {
-        "Content-Type": mime,
-        "Cache-Control": pathname.startsWith("/assets/")
-          ? "public, max-age=3600"
-          : "no-cache",
+        "Content-Type": type,
+        "Cache-Control": "public, max-age=3600",
       },
     });
-  } catch (e) {
-    if (e instanceof Deno.errors.NotFound) {
-      console.error("Not Found: ", filePath);
-      return new Response("Not Found", { status: 404 });
-    }
-    console.error(e);
-    return new Response("Internal Server Error", { status: 500 });
+  } catch {
+    return c.notFound();
   }
-}
+});
+
+app.all("*", (c: Context) => c.notFound());
 
 const port = Number(Deno.env.get("PORT")) || 8080;
 console.log(`Serving www at http://localhost:${port}`);
-Deno.serve({ port }, handle);
+
+Deno.serve({ port }, app.fetch);

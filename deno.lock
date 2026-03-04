@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@hono/hono@^4.7.0": "4.12.5",
     "jsr:@p4sca1/cron-schedule@6": "6.0.0",
     "jsr:@p4sca1/cron-schedule@^5.0.3": "5.0.3",
     "npm:ioredis@^5.5.0": "5.9.3",
@@ -8,6 +9,9 @@
     "npm:vitepress@*": "1.6.4_vite@5.4.21_vue@3.5.27_focus-trap@7.8.0"
   },
   "jsr": {
+    "@hono/hono@4.12.5": {
+      "integrity": "16e6ac6d6ab65c3d08fa4c019c3d9236389044074f3932bf0922fcb582e530c6"
+    },
     "@p4sca1/cron-schedule@5.0.3": {
       "integrity": "8272d8afe9169f38d870e66c59da9b1173fd9c644293f26d8e5e0b20d88cbf1f"
     },
@@ -1149,6 +1153,7 @@
       },
       "www": {
         "dependencies": [
+          "jsr:@hono/hono@^4.7.0",
           "jsr:@std/assert@1"
         ]
       }
