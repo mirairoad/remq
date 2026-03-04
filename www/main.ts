@@ -84,43 +84,30 @@ site.get("/script.js", async (_c: Context) => {
   });
 });
 
-site.get("/favicon.ico", async (_c: Context) => {
-  const body = await readFile("assets/img/favicon.ico");
-  return new Response(body as BodyInit, {
-    headers: { "Content-Type": "image/x-icon" },
-  });
-});
-
-site.get("/public/favicon.ico", async (_c: Context) => {
-  const body = await readFile("assets/img/favicon.ico");
-  return new Response(body as BodyInit, {
-    headers: { "Content-Type": "image/x-icon" },
-  });
-});
-
-site.get("/logo.png", async (_c: Context) => {
-  const body = await readFile("assets/img/logo.png");
-  return new Response(body as BodyInit, {
-    headers: { "Content-Type": "image/png" },
-  });
-});
-
-site.get("/public/logo.png", async (_c: Context) => {
-  const body = await readFile("assets/img/logo.png");
-  return new Response(body as BodyInit, {
-    headers: { "Content-Type": "image/png" },
-  });
-});
+// site.get("/favicon.ico", async (_c: Context) => {
+//   const body = await readFile("assets/img/favicon.ico");
+//   return new Response(body as BodyInit, {
+//     headers: { "Content-Type": "image/x-icon" },
+//   });
+// });
 
 site.get("/assets/img/logo.svg", async (_c: Context) => {
   const body = await readFile("assets/img/logo.svg");
   return new Response(body as BodyInit, {
-    headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=3600" },
+    headers: {
+      "Content-Type": "image/svg+xml",
+      "Cache-Control": "public, max-age=3600",
+    },
   });
 });
 
 site.get("/assets/*", async (c: Context) => {
-  const path = c.req.path.replace(/^\/assets/, "assets");
+  let raw = c.req.path;
+  console.log(raw);
+  if (BASE_PATH && raw.startsWith(BASE_PATH)) {
+    raw = raw.slice(BASE_PATH.length) || "/";
+  }
+  const path = raw.replace(/^\/assets/, "assets");
   try {
     const body = await readFile(path);
     const ext = path.replace(/.*\./, "");
@@ -145,13 +132,17 @@ site.get("/assets/*", async (c: Context) => {
 
 site.all("*", (c: Context) => c.notFound());
 
-const app = BASE_PATH ? (() => {
-  const a = new Hono();
-  a.route(BASE_PATH, site);
-  return a;
-})() : site;
+const app = BASE_PATH
+  ? (() => {
+    const a = new Hono();
+    a.route(BASE_PATH, site);
+    return a;
+  })()
+  : site;
 
 const port = Number(Deno.env.get("PORT")) || 8080;
-console.log(`Serving www at http://localhost:${port}${BASE_PATH ? BASE_PATH : ""}`);
+console.log(
+  `Serving www at http://localhost:${port}${BASE_PATH ? BASE_PATH : ""}`,
+);
 
 Deno.serve({ port }, app.fetch);
