@@ -47,19 +47,20 @@ async function readFile(path: string): Promise<Uint8Array> {
 /** Base path when behind a proxy (e.g. Cloudflare path): set BASE_PATH=/remq so app serves at /remq and /remq/ */
 const BASE_PATH = (Deno.env.get("BASE_PATH") ?? "").replace(/\/$/, "") || "";
 
+const BASE_PATH_OR_ROOT = BASE_PATH || "/";
+
 function injectVersion(html: string): string {
   let out = html
     .replaceAll("{{REMQ_VERSION}}", REMQ_VERSION)
-    .replaceAll("{{BASE_PATH}}", BASE_PATH);
-  // Collapse double slashes in paths (avoid /remq//#features) but keep https://
+    .replaceAll("{{BASE_PATH}}", BASE_PATH)
+    .replaceAll("{{BASE_PATH_OR_ROOT}}", BASE_PATH_OR_ROOT);
   out = out.replace(/([^:])\/\/+/g, "$1/");
   return out;
 }
 
 const site = new Hono();
 
-// Redirect /remq → /remq/ so index + hash URLs (e.g. /remq/#features) load correctly
-site.get("", (c: Context) => c.redirect(BASE_PATH ? `${BASE_PATH}/` : "/", 302));
+site.get("", (c: Context) => c.html(injectVersion(index)));
 site.get("/", (c: Context) => c.html(injectVersion(index)));
 site.get("/docs", (c: Context) => c.html(injectVersion(docs)));
 
