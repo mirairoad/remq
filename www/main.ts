@@ -48,17 +48,16 @@ function injectVersion(html: string): string {
   return html.replaceAll("{{REMQ_VERSION}}", REMQ_VERSION);
 }
 
-const app = new Hono();
+/** Base path when behind a proxy (e.g. Cloudflare path): set BASE_PATH=/remq so app serves at /remq and /remq/ */
+const BASE_PATH = (Deno.env.get("BASE_PATH") ?? "").replace(/\/$/, "") || "";
 
-app.get("/", (c: Context) => {
-  return c.html(injectVersion(index));
-});
+const site = new Hono();
 
-app.get("/docs", (c: Context) => {
-  return c.html(injectVersion(docs));
-});
+site.get("", (c: Context) => c.html(injectVersion(index)));
+site.get("/", (c: Context) => c.html(injectVersion(index)));
+site.get("/docs", (c: Context) => c.html(injectVersion(docs)));
 
-app.get("/style.css", async (_c: Context) => {
+site.get("/style.css", async (_c: Context) => {
   const body = await readFile("assets/style/style.css");
   return new Response(body as BodyInit, {
     headers: {
@@ -68,7 +67,7 @@ app.get("/style.css", async (_c: Context) => {
   });
 });
 
-app.get("/script.js", async (_c: Context) => {
+site.get("/script.js", async (_c: Context) => {
   const body = await readFile("assets/js/script.js");
   return new Response(body as BodyInit, {
     headers: {
@@ -78,35 +77,35 @@ app.get("/script.js", async (_c: Context) => {
   });
 });
 
-app.get("/favicon.ico", async (_c: Context) => {
+site.get("/favicon.ico", async (_c: Context) => {
   const body = await readFile("assets/img/favicon.ico");
   return new Response(body as BodyInit, {
     headers: { "Content-Type": "image/x-icon" },
   });
 });
 
-app.get("/public/favicon.ico", async (_c: Context) => {
+site.get("/public/favicon.ico", async (_c: Context) => {
   const body = await readFile("assets/img/favicon.ico");
   return new Response(body as BodyInit, {
     headers: { "Content-Type": "image/x-icon" },
   });
 });
 
-app.get("/logo.png", async (_c: Context) => {
+site.get("/logo.png", async (_c: Context) => {
   const body = await readFile("assets/img/logo.png");
   return new Response(body as BodyInit, {
     headers: { "Content-Type": "image/png" },
   });
 });
 
-app.get("/public/logo.png", async (_c: Context) => {
+site.get("/public/logo.png", async (_c: Context) => {
   const body = await readFile("assets/img/logo.png");
   return new Response(body as BodyInit, {
     headers: { "Content-Type": "image/png" },
   });
 });
 
-app.get("/assets/*", async (c: Context) => {
+site.get("/assets/*", async (c: Context) => {
   const path = c.req.path.replace(/^\/assets/, "assets");
   try {
     const body = await readFile(path);
@@ -130,12 +129,15 @@ app.get("/assets/*", async (c: Context) => {
   }
 });
 
-app.all("*", (c: Context) => {
-  console.error(c.req);
-  return c.notFound();
-});
+site.all("*", (c: Context) => c.notFound());
+
+const app = BASE_PATH ? (() => {
+  const a = new Hono();
+  a.route(BASE_PATH, site);
+  return a;
+})() : site;
 
 const port = Number(Deno.env.get("PORT")) || 8080;
-console.log(`Serving www at http://localhost:${port}`);
+console.log(`Serving www at http://localhost:${port}${BASE_PATH ? BASE_PATH : ""}`);
 
 Deno.serve({ port }, app.fetch);
