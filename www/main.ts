@@ -44,12 +44,14 @@ async function readFile(path: string): Promise<Uint8Array> {
   return await Deno.readFile(new URL(path, BASE));
 }
 
-function injectVersion(html: string): string {
-  return html.replaceAll("{{REMQ_VERSION}}", REMQ_VERSION);
-}
-
 /** Base path when behind a proxy (e.g. Cloudflare path): set BASE_PATH=/remq so app serves at /remq and /remq/ */
 const BASE_PATH = (Deno.env.get("BASE_PATH") ?? "").replace(/\/$/, "") || "";
+
+function injectVersion(html: string): string {
+  return html
+    .replaceAll("{{REMQ_VERSION}}", REMQ_VERSION)
+    .replaceAll("{{BASE_PATH}}", BASE_PATH);
+}
 
 const site = new Hono();
 

@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReMQ — Redis-backed job queue for Deno</title>
-    <link rel="icon" href="public/favicon.ico">
+    <link rel="icon" href="{{BASE_PATH}}/public/favicon.ico">
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css"
     >
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="{{BASE_PATH}}/style.css">
   </head>
   <body>
     <!-- §01 Navbar -->
@@ -21,7 +21,7 @@
       <div class="navbar-brand">
         <!-- remove hover effect -->
         <span class="navbar-item" style="pointer-events: none">
-          <img id="site-logo" src="/assets/img/logo.svg" alt="remq">
+          <img id="site-logo" src="{{BASE_PATH}}/assets/img/logo.svg" alt="remq">
         </span>
 
         <a
@@ -40,7 +40,7 @@
         <div class="navbar-end">
           <a class="navbar-item" href="#benchmarks">Benchmarks</a>
           <a class="navbar-item" href="#features">Features</a>
-          <a class="navbar-item" href="/docs">Docs</a>
+          <a class="navbar-item" href="{{BASE_PATH}}/docs">Docs</a>
           <a
             class="navbar-item"
             href="https://github.com/mirairoad/remq"
@@ -76,7 +76,7 @@
               <div class="buttons are-medium">
                 <a
                   class="button is-link"
-                  href="/docs"
+                  href="{{BASE_PATH}}/docs"
                   style="background: var(--accent); color: var(--bg); border: none"
                 >Get started</a>
                 <a
@@ -538,13 +538,13 @@
                 rel="noopener"
               >JSR</a>
               <span class="mx-2">·</span>
-              <a href="docs.html">Docs</a>
+              <a href="{{BASE_PATH}}/docs">Docs</a>
             </div>
           </div>
         </div>
       </div>
     </footer>
 
-    <script src="script.js"></script>
+    <script src="{{BASE_PATH}}/script.js"></script>
   </body>
 </html>
