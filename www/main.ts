@@ -63,12 +63,22 @@ function resolvePath(pathname: string): string | null {
   const normalized = pathname.replace(/^\/+/, "").replace(/\/+/g, "/");
   if (normalized.includes("..")) return null;
 
-  if (normalized === "" || normalized === "index.html") return join(SCRIPT_DIR, "pages", "index.html");
+  if (normalized === "" || normalized === "index.html") {
+    return join(SCRIPT_DIR, "pages", "index.html");
+  }
   if (normalized === "docs.html") return join(SCRIPT_DIR, "pages", "docs.html");
-  if (normalized === "style.css") return join(SCRIPT_DIR, "assets", "style", "style.css");
-  if (normalized === "script.js") return join(SCRIPT_DIR, "assets", "js", "script.js");
-  if (normalized === "favicon.ico" || normalized === "public/favicon.ico") return join(SCRIPT_DIR, "assets", "img", "favicon.ico");
-  if (normalized === "logo.png" || normalized === "public/logo.png") return join(SCRIPT_DIR, "assets", "img", "logo.png");
+  if (normalized === "style.css") {
+    return join(SCRIPT_DIR, "assets", "style", "style.css");
+  }
+  if (normalized === "script.js") {
+    return join(SCRIPT_DIR, "assets", "js", "script.js");
+  }
+  if (normalized === "favicon.ico" || normalized === "public/favicon.ico") {
+    return join(SCRIPT_DIR, "assets", "img", "favicon.ico");
+  }
+  if (normalized === "logo.png" || normalized === "public/logo.png") {
+    return join(SCRIPT_DIR, "assets", "img", "logo.png");
+  }
   if (normalized.startsWith("assets/")) return join(SCRIPT_DIR, normalized);
   return null;
 }
@@ -101,6 +111,7 @@ async function handle(req: Request): Promise<Response> {
     });
   } catch (e) {
     if (e instanceof Deno.errors.NotFound) {
+      console.error("Not Found: ", filePath);
       return new Response("Not Found", { status: 404 });
     }
     console.error(e);
