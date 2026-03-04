@@ -58,7 +58,8 @@ function injectVersion(html: string): string {
 
 const site = new Hono();
 
-site.get("", (c: Context) => c.html(injectVersion(index)));
+// Redirect /remq → /remq/ so index + hash URLs (e.g. /remq/#features) load correctly
+site.get("", (c: Context) => c.redirect(BASE_PATH ? `${BASE_PATH}/` : "/", 302));
 site.get("/", (c: Context) => c.html(injectVersion(index)));
 site.get("/docs", (c: Context) => c.html(injectVersion(docs)));
 
@@ -107,6 +108,13 @@ site.get("/public/logo.png", async (_c: Context) => {
   const body = await readFile("assets/img/logo.png");
   return new Response(body as BodyInit, {
     headers: { "Content-Type": "image/png" },
+  });
+});
+
+site.get("/assets/img/logo.svg", async (_c: Context) => {
+  const body = await readFile("assets/img/logo.svg");
+  return new Response(body as BodyInit, {
+    headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=3600" },
   });
 });
 
