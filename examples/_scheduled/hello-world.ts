@@ -12,7 +12,7 @@ export const helloWorldJob = defineJob(
     repeat: {
       pattern: '* * * * *',
     },
-    queue: 'testing',
+    queue: 'scheduled',
     // attempts: 3,
   },
 );

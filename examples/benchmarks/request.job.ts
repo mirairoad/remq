@@ -22,5 +22,4 @@ export const requestJob = defineJob<Record<string, unknown>, OnRequestData>(
       benchmark.print();
     }
   },
-  { queue: 'default' },
 );

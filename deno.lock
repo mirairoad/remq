@@ -2,8 +2,11 @@
   "version": "5",
   "specifiers": {
     "jsr:@hono/hono@^4.7.0": "4.12.5",
+    "jsr:@hushkey/remq@0.24": "0.24.0",
     "jsr:@p4sca1/cron-schedule@6": "6.0.0",
     "jsr:@p4sca1/cron-schedule@^5.0.3": "5.0.3",
+    "jsr:@std/assert@1": "1.0.19",
+    "jsr:@std/internal@^1.0.12": "1.0.12",
     "npm:ioredis@^5.5.0": "5.9.3",
     "npm:ioredis@^5.9.3": "5.9.3",
     "npm:vitepress@*": "1.6.4_vite@5.4.21_vue@3.5.27_focus-trap@7.8.0"
@@ -12,11 +15,26 @@
     "@hono/hono@4.12.5": {
       "integrity": "16e6ac6d6ab65c3d08fa4c019c3d9236389044074f3932bf0922fcb582e530c6"
     },
+    "@hushkey/remq@0.24.0": {
+      "integrity": "b4597e8f48ef2d2388a0da6f8f34739f72aeb1f14582de4ce11b008699011fba",
+      "dependencies": [
+        "jsr:@p4sca1/cron-schedule@6"
+      ]
+    },
     "@p4sca1/cron-schedule@5.0.3": {
       "integrity": "8272d8afe9169f38d870e66c59da9b1173fd9c644293f26d8e5e0b20d88cbf1f"
     },
     "@p4sca1/cron-schedule@6.0.0": {
       "integrity": "6cce77ac1cff71ce94a1503e1b40af8dbc0b9de33352a42ab98a7f4821439d73"
+    },
+    "@std/assert@1.0.19": {
+      "integrity": "eaada96ee120cb980bc47e040f82814d786fe8162ecc53c91d8df60b8755991e",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
+    },
+    "@std/internal@1.0.12": {
+      "integrity": "972a634fd5bc34b242024402972cd5143eac68d8dffaca5eaa4dba30ce17b027"
     }
   },
   "npm": {
@@ -1147,6 +1165,7 @@
       },
       "examples": {
         "dependencies": [
+          "jsr:@hushkey/remq@0.24",
           "jsr:@p4sca1/cron-schedule@^5.0.3",
           "npm:ioredis@^5.5.0"
         ]

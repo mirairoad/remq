@@ -1,4 +1,5 @@
-import { Remq } from '@core/libs/remq/mod.ts';
+// import { Remq } from '@core/libs/remq/mod.ts';
+import { Remq } from '@hushkey/remq';
 import { RemqAdmin } from '@core/libs/remq-admin/mod.ts';
 import { Redis } from 'ioredis';
 
@@ -50,8 +51,8 @@ const remq = Remq.create({
     },
     pollIntervalMs: 1000, // let work accumulate between reads; then read + process with concurrency (default 3000)
     maxLogsPerJob: 100, // trim oldest logs; keeps Redis self-cleaning
-    // stream trimmed after ACK (MINID); streamMaxLen accepted but unused
     jobStateTtlSeconds: 604800, // 7 days; job state keys expire. Admin/SDK queries must handle missing keys (SCAN/GET)
+    // streamMaxLen removed — MINID trim handles this safely
     // readCount: 50, // optional: lower if message payloads are large (default 200)
   },
 });

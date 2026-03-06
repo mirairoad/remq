@@ -10,13 +10,15 @@
   "imports": {
     "@core/": "../core/",
     "ioredis": "npm:ioredis@^5.5.0",
-    "cron-schedule": "jsr:@p4sca1/cron-schedule@^5.0.3"
+    "cron-schedule": "jsr:@p4sca1/cron-schedule@^5.0.3",
+    "@hushkey/remq": "jsr:@hushkey/remq@^0.24.0"
   },
   "exports": {
     "./server": "./index.ts"
   },
   "tasks": {
-    "dev": "deno run -A --watch index.ts"
+    "dev": "deno run -A --watch index.ts",
+    "benchmark": "deno run -A benchmarks/run.ts"
   },
   "fmt": {
     "useTabs": false,

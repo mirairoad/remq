@@ -12,7 +12,7 @@ export const byeWorldJob = defineJob(
     repeat: {
       pattern: '*/2 * * * *',
     },
-    queue: 'testing',
+    queue: 'scheduled',
     // attempts: 3,
   },
 );
