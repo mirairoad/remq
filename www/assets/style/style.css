@@ -10,9 +10,16 @@
 }
 
 /* §14 Dark theme base */
+html {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
 body {
   background: var(--bg);
   color: #e8e8e8;
+  overflow-x: hidden;
+  max-width: 100%;
 }
 
 .navbar {
@@ -54,6 +61,52 @@ a.navbar-item:hover {
 .navbar-burger {
   color: #e8e8e8;
   min-height: 4rem;
+}
+
+/* Mobile menu: full-width and dark theme (Bulma’s dropdown is light by default) */
+@media screen and (max-width: 1023px) {
+  .navbar-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+    background: var(--surface) !important;
+    border-top: 1px solid var(--border);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+  }
+
+  .navbar-menu .navbar-end {
+    display: flex;
+    flex-direction: column;
+    padding: 0.5rem 0;
+    margin: 0;
+    width: 100%;
+  }
+
+  .navbar-menu .navbar-item {
+    color: #e8e8e8 !important;
+    background: transparent !important;
+    padding: 1rem 1.25rem;
+    min-height: auto;
+    border-radius: 0;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .navbar-menu .navbar-item:hover,
+  .navbar-menu .navbar-item:focus {
+    background: rgba(232, 255, 71, 0.12) !important;
+    color: var(--accent) !important;
+  }
+
+  .navbar-menu .version-badge {
+    margin: 0.5rem 1.25rem 0;
+    align-self: flex-start;
+  }
 }
 
 /* Version badge — same look as Get started button */
@@ -122,6 +175,8 @@ a.navbar-item:hover {
   border-radius: 8px;
   overflow: hidden;
   margin: 0.5rem 0;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .code-header {
@@ -165,6 +220,50 @@ a.navbar-item:hover {
   font-size: 0.875rem;
   line-height: 1.5;
   background-color: #161b22;
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* §15b Mobile/tablet: prevent hero, getting-started, benchmarks from horizontal overflow */
+@media screen and (max-width: 1023px) {
+  .hero .columns {
+    flex-direction: column;
+  }
+
+  .hero .column.is-half {
+    flex-basis: 100% !important;
+    max-width: 100% !important;
+    min-width: 0;
+  }
+
+  .hero .code-block,
+  .hero .code-block pre {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .hero .buttons {
+    flex-wrap: wrap;
+  }
+
+  .section .container,
+  .hero .container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+    max-width: 100%;
+  }
+
+  .table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .hero .title,
+  .hero .subtitle,
+  .hero .eyebrow {
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+  }
 }
 
 /* Token colors */

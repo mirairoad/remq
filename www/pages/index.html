@@ -75,7 +75,7 @@
               </h1>
               <p class="subtitle has-text-grey-light">
                 Full lifecycle: emit, process, retry, DLQ, cron, WebSocket
-                updates. No separate server. ~841 jobs/sec.
+                updates. At-least-once delivery, crash recovery. ~506 jobs/sec.
               </p>
               <div class="buttons are-medium">
                 <a
@@ -110,7 +110,7 @@
                 <pre>
 <code><span class="tok-k">import</span> <span class="tok-n">{ defineJob }</span> <span class="tok-k">from</span> <span class="tok-s">'jsr:@hushkey/remq'</span><span class="tok-n">;</span>
 <span class="tok-k">export const</span> <span class="tok-n">hostSync</span> <span class="tok-k">=</span> <span class="tok-fn">defineJob</span><span class="tok-n">(</span><span class="tok-s">'host.sync'</span><span class="tok-n">,</span> <span class="tok-k">async</span> <span class="tok-n">(ctx)</span> <span class="tok-k">=&gt;</span> <span class="tok-n">{</span>
-  <span class="tok-n">await ctx</span><span class="tok-n">.</span><span class="tok-fn">logger</span><span class="tok-n">(</span><span class="tok-s">'Syncing '</span> <span class="tok-k">+</span> <span class="tok-n">ctx</span><span class="tok-n">.</span><span class="tok-n">data</span><span class="tok-n">.</span><span class="tok-n">hostId</span><span class="tok-n">);</span>
+  <span class="tok-n">ctx</span><span class="tok-n">.</span><span class="tok-fn">logger</span><span class="tok-n">(</span><span class="tok-s">'Syncing '</span> <span class="tok-k">+</span> <span class="tok-n">ctx</span><span class="tok-n">.</span><span class="tok-n">data</span><span class="tok-n">.</span><span class="tok-n">hostId</span><span class="tok-n">);</span>
 <span class="tok-n">});</span></code></pre>
               </div>
               <div class="code-block">
@@ -136,16 +136,16 @@
     <!-- §03 Ticker -->
     <div class="ticker-wrap">
       <div class="ticker-track">
-        <span class="ticker-item">841 jobs/sec</span>
-        <span class="ticker-item">1.18ms avg latency</span>
+        <span class="ticker-item">506 jobs/sec</span>
+        <span class="ticker-item">1.98ms avg latency</span>
         <span class="ticker-item">10/10 concurrency</span>
         <span class="ticker-item">Redis Streams</span>
         <span class="ticker-item">Deno + Tokio</span>
         <span class="ticker-item">Full lifecycle</span>
         <span class="ticker-item">Cron + Retry + DLQ</span>
         <span class="ticker-item">WebSocket gateway</span>
-        <span class="ticker-item">841 jobs/sec</span>
-        <span class="ticker-item">1.18ms avg latency</span>
+        <span class="ticker-item">506 jobs/sec</span>
+        <span class="ticker-item">1.98ms avg latency</span>
         <span class="ticker-item">10/10 concurrency</span>
         <span class="ticker-item">Redis Streams</span>
         <span class="ticker-item">Deno + Tokio</span>
@@ -183,18 +183,18 @@
             <div class="columns is-mobile is-multiline">
               <div class="column is-half">
                 <strong>Throughput:</strong> <span style="color: var(--accent)"
-                >841 jobs/sec</span>
+                >506 jobs/sec</span>
               </div>
               <div class="column is-half">
                 <strong>Latency:</strong> <span style="color: var(--accent)"
-                >1.18ms</span> avg
+                >1.98ms</span> avg
               </div>
               <div class="column is-half">
                 <strong>Round trips:</strong> 2 Redis ops/job
               </div>
               <div class="column is-full mt-2">
                 <span class="has-text-grey-light is-size-7"
-                >Full lifecycle: emit → queue → process → complete → trim</span>
+                >Full lifecycle: emit → queue → process → ack → trim. At-least-once delivery.</span>
               </div>
             </div>
           </div>
@@ -211,21 +211,21 @@
             <div class="columns is-mobile is-multiline">
               <div class="column is-half">
                 <strong>Throughput:</strong> <span style="color: var(--accent)"
-                >~800 jobs/sec</span>
+                >~450 jobs/sec</span>
               </div>
               <div class="column is-half">
                 <strong>Latency:</strong> <span style="color: var(--accent)"
-                >1.2ms</span> avg
+                >~2.2ms</span> avg
               </div>
               <div class="column is-full">
-                <strong>Guarantee:</strong> Write confirmed before return
+                <strong>Guarantee:</strong> State key and stream entry written in order before return
               </div>
               <div class="column is-full">
-                <strong>Use for:</strong> payments, invoices, emails
+                <strong>Use for:</strong> payments, invoices, critical job chains
               </div>
               <div class="column is-full">
                 <span class="has-text-grey-light is-size-7"
-                >Trade-off: +0.5–1ms vs fire-and-forget</span>
+                >Trade-off: sequential writes vs fire-and-forget emit()</span>
               </div>
             </div>
           </div>
@@ -243,11 +243,11 @@
             <div class="columns is-mobile is-multiline">
               <div class="column is-half">
                 <strong>Throughput:</strong> <span style="color: var(--accent)"
-                >~2,400 jobs/sec</span> (projected, linear scaling)
+                >~1,500 jobs/sec</span> (projected, linear scaling from 506/sec single)
               </div>
               <div class="column is-half">
                 <strong>Latency:</strong> <span style="color: var(--accent)"
-                >~1.1ms</span> avg
+                >~1.98ms</span> avg
               </div>
             </div>
           </div>
@@ -270,14 +270,14 @@
               <tbody>
                 <tr>
                   <td>Full lifecycle</td>
-                  <td class="col-remq">841/sec</td>
+                  <td class="col-remq">506/sec</td>
                   <td>~200/sec</td>
                   <td>~400/sec</td>
                   <td>~150/sec</td>
                 </tr>
                 <tr>
                   <td>Latency</td>
-                  <td class="col-remq">1.18ms</td>
+                  <td class="col-remq">1.98ms</td>
                   <td>~5ms</td>
                   <td>~2.5ms</td>
                   <td>~6ms</td>
@@ -360,9 +360,9 @@
           </div>
           <div class="column is-one-third anim">
             <div class="box">
-              <p class="title is-5 has-text-white">RemqAdmin SDK</p>
+              <p class="title is-5 has-text-white">RemqManagement API</p>
               <p class="has-text-grey-light">
-                CRUD, pipeline-optimised, 1 round trip for getJob.
+                Jobs &amp; queues API, job events (finished/completed/failed).
               </p>
             </div>
           </div>
@@ -427,14 +427,14 @@
               </tr>
               <tr>
                 <td>Full lifecycle jobs/sec</td>
-                <td class="col-remq">~841</td>
+                <td class="col-remq">~506</td>
                 <td>~200</td>
                 <td>~400</td>
                 <td>~150</td>
               </tr>
               <tr>
                 <td>Engine overhead</td>
-                <td class="col-remq">1.18ms</td>
+                <td class="col-remq">1.98ms</td>
                 <td>~5ms</td>
                 <td>~2.5ms</td>
                 <td>~7ms</td>
