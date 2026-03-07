@@ -483,7 +483,7 @@ export class Remq<
       // Emit only if no stream entry exists
       if (matchingEntries.length >= 1) {
         const idsToDelete = matchingEntries.map(([id]) => id);
-        console.log(idsToDelete);
+        // console.log(idsToDelete);
         await this.streamdb.xdel(streamKey, ...idsToDelete);
         // then re-emit with old delayUntil
 
@@ -499,6 +499,9 @@ export class Remq<
           attempts,
           delay: new Date(existingJob.delayUntil),
         });
+      } else {
+        // first boot — no existing entry, emit fresh
+        await this.emitAsync(event, {}, { queue, repeat, attempts });
       }
     }
 
