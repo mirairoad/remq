@@ -1,8 +1,8 @@
 /**
- * WebSocket gateway – spawns a server on 0.0.0.0:port and upgrades HTTP requests to WebSocket.
- * Uses Deno's built-in Deno.serve and Deno.upgradeWebSocket.
+ * WebSocket gateway — creates a server that upgrades HTTP to WebSocket (createWsGateway).
+ *
+ * @module
  */
-
 import type { Remq } from '../remq/mod.ts';
 
 export type WsConnectionHandler = (ws: WebSocket, req: Request) => void;

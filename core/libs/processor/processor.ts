@@ -1,17 +1,8 @@
 /**
- * Processor — v0.40.0
+ * Processor — policy layer around Consumer (delay, retry, DLQ, ACK/NACK).
  *
- * Policy layer wrapping Consumer. Owns all job lifecycle decisions:
- * - Delay: sleep then requeue, never tight spin
- * - Retry: fixed or exponential backoff, requeue with decremented retryCount
- * - DLQ: route to dead letter queue after retries exhausted
- * - ACK: called after successful handler completion (real XACK)
- * - NACK: called after final failure (real XACK, removes from PEL)
- *
- * Debounce is handled per-handler in mod.ts — not here.
- * Stream reader primitives (XACK, XTRIM) are owned by stream-reader.ts.
+ * @module
  */
-
 import { Consumer } from '../consumer/consumer.ts';
 import type {
   Message,
@@ -23,6 +14,9 @@ import type {
 /** Max retry delay for exponential backoff — 1 hour */
 const MAX_RETRY_DELAY_MS = 3_600_000;
 
+/**
+ * Policy layer wrapping Consumer. Owns delay (sleep then requeue), retry (backoff), DLQ, ACK/NACK.
+ */
 export class Processor {
   private readonly consumer: Consumer;
   private readonly streamdb: ProcessorOptions['streamdb'];

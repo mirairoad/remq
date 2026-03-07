@@ -1,6 +1,10 @@
 /**
- * Manages debouncing of message processing
- * Tracks recently processed messages to prevent duplicates
+ * Debounce manager for job/message processing (used by Remq handler options).
+ *
+ * @module
+ */
+/**
+ * Manages debouncing of message processing. Tracks recently processed messages to prevent duplicates.
  */
 export class DebounceManager {
   private readonly windowMs: number;

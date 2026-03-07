@@ -1,16 +1,8 @@
 /**
- * Consumer — v0.40.0
+ * Consumer — runtime engine for Redis Streams (fill-then-drain, real ACK/NACK, stable consumer ID).
  *
- * Runtime engine for processing messages from Redis Streams.
- *
- * Design principles:
- * - Fill-then-drain: read ALL streams before dispatching any messages
- * - Real ACK/NACK: MessageContext.ack/nack are live operations, not no-ops
- * - Error isolation: one message failure never affects sibling messages
- * - Self-contained: ensureConsumerGroup called in start(), no caller setup required
- * - Stable consumer ID: hostname + pid for multi-instance visibility in Redis
+ * @module
  */
-
 import type {
   ConsumerOptions,
   Message,
@@ -18,6 +10,9 @@ import type {
 } from '../../types/index.ts';
 import { StreamReader } from './stream-reader.ts';
 
+/**
+ * Runtime engine for processing messages from Redis Streams. Fill-then-drain, real ACK/NACK, error isolation.
+ */
 export class Consumer extends EventTarget {
   private readonly streamdb: ConsumerOptions['streamdb'];
   private readonly streams: string[]; // sorted by priority ascending (lower number = higher priority)

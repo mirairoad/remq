@@ -1,14 +1,13 @@
 /**
- * RemqManagement — v0.40.0
+ * RemqManagement — queue and job administration via management.api.jobs and management.api.queues.
  *
- * Replaces RemqAdmin. Queue and job administration via management.api.jobs / management.api.queues.
+ * @example
+ * const management = new RemqManagement({ db, streamdb, remq });
+ * await management.api.jobs.find();
+ * await management.api.queues.find();
  *
- * Usage:
- *   const management = new RemqManagement({ db, streamdb, remq })
- *   await management.api.jobs.find()
- *   await management.api.queues.find()
+ * @module
  */
-
 import type { RedisConnection } from '../../types/index.ts';
 import type { Remq } from '../remq/mod.ts';
 import { SUBSCRIBE_JOB_FINISHED } from '../remq/mod.ts';

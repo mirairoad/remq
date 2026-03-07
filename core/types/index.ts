@@ -1,11 +1,8 @@
 /**
- * remq types — v0.40.0
+ * Remq types — single source of truth for public and internal types (emit, handlers, options, job data).
  *
- * Single source of truth for all public and internal types.
- * Public types are re-exported from mod.ts.
- * Internal types (Consumer, Processor, Message) stay internal.
+ * @module
  */
-
 import type { Redis } from 'ioredis';
 
 // ─── Redis ────────────────────────────────────────────────────────────────────

@@ -1,3 +1,8 @@
+/**
+ * Remq — job queue and worker runtime. Export point for Remq, RemqManagement, and defineJob.
+ *
+ * @module
+ */
 import { HandlerOptions, JobDefinition, JobHandler } from './types/index.ts';
 
 /**

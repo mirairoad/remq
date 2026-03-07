@@ -1,20 +1,9 @@
 /**
- * Remq — v0.40.0
+ * Remq — high-level public API for job management (singleton lifecycle, handlers, emit, start/stop).
+ * Built on Processor → Consumer → StreamReader.
  *
- * High-level public API for job management.
- * Built on top of Processor → Consumer → StreamReader stack.
- *
- * Owns:
- * - Singleton lifecycle (create, getInstance, _reset)
- * - Handler registration (on, defineJob)
- * - Job emission (emit, emitAsync, enqueueJobToStream)
- * - Startup coordination (cron dedup, stream cleanup, processor creation)
- * - Job processing (processJob, transitionState)
- * - Cron scheduling (#scheduleCronNextTick)
- * - WebSocket gateway (expose option)
- * - Graceful shutdown (stop, drain)
+ * @module
  */
-
 import { Redis } from 'ioredis';
 import { Processor } from '../processor/processor.ts';
 import { DebounceManager } from '../processor/debounce-manager.ts';
@@ -54,6 +43,10 @@ export type {
 /** Symbol for internal subscription. Not part of public API. */
 export const SUBSCRIBE_JOB_FINISHED = Symbol.for('remq.subscribeJobFinished');
 
+/**
+ * Main Remq instance: register handlers with on(), enqueue jobs with emit()/emitAsync(), then start().
+ * Use Remq.create() once; getInstance() thereafter.
+ */
 export class Remq<
   TApp extends Record<string, unknown> = Record<string, unknown>,
 > {

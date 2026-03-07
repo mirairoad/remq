@@ -1,20 +1,13 @@
 /**
- * StreamReader — v0.40.0
+ * StreamReader — Redis Stream operations (XREADGROUP, XACK, XTRIM MINID, XCLAIM) for Consumer.
  *
- * Handles all Redis Stream operations for remq.
- *
- * Design principles:
- * - Messages are NOT ACKed on read — they stay in PEL until handler completes
- * - ACK happens after successful processing (crash recovery via PEL reclaim)
- * - NACK is a primitive — ACKs the original only, caller decides requeue strategy
- * - XTRIM uses MINID bounded by oldest PEL entry — never trims unprocessed messages
- * - Claim check runs every cycle — reclaims stuck jobs within visibilityTimeoutMs
- *
- * ioredis XPENDING tuple shape: [id, consumer, idleMs, deliveryCount]
+ * @module
  */
-
 import type { Message, RedisConnection } from '../../types/index.ts';
 
+/**
+ * Handles Redis Stream operations: XREADGROUP, XACK, XTRIM (MINID), XCLAIM. Messages stay in PEL until ack().
+ */
 export class StreamReader {
   private readonly streamdb: RedisConnection;
   private readonly group: string;

@@ -1,9 +1,8 @@
 /**
- * remq utils — v0.40.0
+ * Job ID and execution ID utilities (genJobIdSync, genExecId).
  *
- * Job ID generation and execution ID utilities.
+ * @module
  */
-
 // ─── FNV-1a constants ─────────────────────────────────────────────────────────
 
 const FNV_OFFSET = 2166136261n;

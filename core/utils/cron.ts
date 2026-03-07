@@ -1,5 +1,9 @@
-// cron-schedule
-export const TIMEOUT_MAX = 2147483647; // 2^31-1
+/**
+ * Cron schedule parsing and next/previous date computation (parseCronExpression, Cron, longTimeout, etc.).
+ *
+ * @module
+ */
+export const TIMEOUT_MAX = 2147483647;
 
 export interface ITimerHandle {
   timeoutId?: ReturnType<typeof setTimeout>;
