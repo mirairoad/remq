@@ -1,34 +1,49 @@
-import type { RedisConnection } from '../../types/index.ts';
-import type { Message } from '../../types/message.ts';
-
 /**
- * StreamReader - Handles reading from Redis Streams
+ * StreamReader — v0.40.0
  *
- * Copied from old worker's readQueueStream logic - robust and reliable
+ * Handles all Redis Stream operations for remq.
+ *
+ * Design principles:
+ * - Messages are NOT ACKed on read — they stay in PEL until handler completes
+ * - ACK happens after successful processing (crash recovery via PEL reclaim)
+ * - NACK is a primitive — ACKs the original only, caller decides requeue strategy
+ * - XTRIM uses MINID bounded by oldest PEL entry — never trims unprocessed messages
+ * - Claim check runs every cycle — reclaims stuck jobs within visibilityTimeoutMs
+ *
+ * ioredis XPENDING tuple shape: [id, consumer, idleMs, deliveryCount]
  */
+
+import type { Message, RedisConnection } from '../../types/index.ts';
+
 export class StreamReader {
   private readonly streamdb: RedisConnection;
   private readonly group: string;
   private readonly consumerId: string;
   private readonly readCount: number;
   private readonly blockMs: number;
+  private readonly visibilityTimeoutMs: number;
 
   constructor(
     streamdb: RedisConnection,
     group: string,
     consumerId: string,
     readCount: number = 200,
-    blockMs: number = 1000,
+    blockMs: number = 50,
+    visibilityTimeoutMs: number = 30_000,
   ) {
     this.streamdb = streamdb;
     this.group = group;
     this.consumerId = consumerId;
     this.readCount = readCount;
     this.blockMs = blockMs;
+    this.visibilityTimeoutMs = visibilityTimeoutMs;
   }
 
   /**
-   * Ensures consumer group exists
+   * Ensure consumer group exists for a stream.
+   * - Creates group with MKSTREAM if stream doesn't exist yet
+   * - On BUSYGROUP (group already exists) — returns silently, cursor untouched
+   * - Never resets last-delivered-id — that caused full stream redelivery on restart
    */
   async ensureConsumerGroup(streamKey: string): Promise<void> {
     try {
@@ -42,84 +57,47 @@ export class StreamReader {
     } catch (error: unknown) {
       const err = error as { message?: string };
       if (err?.message?.includes('BUSYGROUP')) {
-        // Group exists — reset last-delivered-id to 0 so any messages
-        // emitted before start() are not skipped
-        await this.streamdb.xgroup('SETID', streamKey, this.group, '0');
-        return;
+        return; // Group exists, cursor is correct — leave it alone
       }
       throw error;
     }
   }
 
   /**
-   * Reads messages from stream (copied from old worker readQueueStream)
-   * - Single xpending: used for claim check (idle >30s) and for trim boundary (oldest un-ACKed)
-   * - Reads new messages (XREADGROUP with BLOCK blockMs)
-   * - ACKs immediately after reading
-   * - Trims only ACKed entries (MINID) so stream stays bounded without dropping unprocessed jobs
+   * Read new messages from a queue stream.
+   *
+   * Flow:
+   * 1. XPENDING — get current PEL, reclaim any idle > visibilityTimeoutMs
+   * 2. XREADGROUP '>' — read new undelivered messages
+   * 3. Return messages WITHOUT ACKing — they stay in PEL until ack() is called
+   *
+   * Messages remain in PEL until explicitly ACKed. If the process crashes,
+   * the next startup's claim check will reclaim and redeliver them.
    */
   async readQueueStream(queueName: string): Promise<Message[]> {
     const streamKey = `${queueName}-stream`;
-    const count = this.readCount;
 
     try {
-      // Single xpending call — used for both claim check AND trim boundary
-      const pendingMessages = await this.streamdb.xpending(
-        streamKey,
-        this.group,
-        '-',
-        '+',
-        count,
-      ) as { id: string; lastDelivered: number }[] | undefined;
+      // Step 1: Check PEL and reclaim stuck messages
+      await this.#claimIdleMessages(streamKey);
 
-      if (pendingMessages?.length) {
-        const now = Date.now();
-        const claimIds = pendingMessages
-          .filter((msg) => (now - msg.lastDelivered) > 30000)
-          .map((msg) => msg.id);
-        if (claimIds.length) {
-          await this.streamdb.xclaim(
-            streamKey,
-            this.group,
-            this.consumerId,
-            30000,
-            ...claimIds,
-          );
-        }
-      }
-
+      // Step 2: Read new messages — do NOT ACK here
       const jobs = await this.streamdb.xreadgroup(
         'GROUP',
         this.group,
         this.consumerId,
         'COUNT',
-        count,
+        this.readCount,
         'BLOCK',
         this.blockMs,
         'STREAMS',
         streamKey,
         '>',
-      ) as [string, [string, string]][];
+      ) as [string, [string, string][]][] | null;
 
       if (!jobs?.[0]?.[1]?.length) return [];
 
-      const processedMessages = this.sanitizeStream(jobs, queueName);
-
-      const messageIds = jobs[0][1].map(([id]) => id);
-      await this.streamdb.xack(streamKey, this.group, ...messageIds);
-
-      // Trim only ACKed entries — use oldest pending as the safe boundary.
-      // If nothing pending, everything is processed — trim up to last ACKed ID.
-      try {
-        const trimId = pendingMessages?.length
-          ? pendingMessages[0].id
-          : messageIds[messageIds.length - 1];
-        await this.streamdb.call('XTRIM', streamKey, 'MINID', '~', trimId);
-      } catch (trimErr) {
-        console.warn('[remq] Stream XTRIM failed (non-fatal):', trimErr);
-      }
-
-      return processedMessages;
+      return this.#sanitize(jobs, queueName);
     } catch (error) {
       console.error('[remq] Error reading from stream:', error);
       return [];
@@ -127,30 +105,129 @@ export class StreamReader {
   }
 
   /**
-   * Sanitizes raw stream data into message objects (copied from old worker sanitizeStream)
+   * ACK a message after successful handler completion.
+   *
+   * Flow:
+   * 1. XACK — remove from PEL (message is done, won't be redelivered)
+   * 2. Re-fetch PEL to get safe MINID boundary
+   * 3. XTRIM MINID up to oldest remaining PEL entry
+   *    If PEL is empty after ACK, skip trim — no safe boundary exists
+   *
+   * Why skip trim when PEL is empty:
+   * New emit() calls may have written stream entries not yet read.
+   * Trimming with no PEL boundary could delete those unprocessed entries.
+   *
+   * ioredis XPENDING tuple: [id, consumer, idleMs, deliveryCount]
    */
-  private sanitizeStream(
-    stream: [string, [string, string]][],
+  async ack(streamKey: string, messageId: string): Promise<void> {
+    await this.streamdb.xack(streamKey, this.group, messageId);
+
+    try {
+      const pending = await this.streamdb.xpending(
+        streamKey,
+        this.group,
+        '-',
+        '+',
+        1, // only need oldest entry for MINID boundary
+      ) as [string, string, number, number][] | undefined;
+
+      if (pending?.length) {
+        const minId = pending[0][0]; // tuple index 0 = stream entry ID
+        if (minId) {
+          // Trim up to oldest still-pending entry — safe boundary
+          await this.streamdb.call('XTRIM', streamKey, 'MINID', '~', minId);
+        }
+      }
+      // PEL empty → skip trim, no safe boundary
+    } catch (trimErr) {
+      // Trim failure is non-fatal — stream grows slightly but no data loss
+      console.warn('[remq] XTRIM failed (non-fatal):', trimErr);
+    }
+  }
+
+  /**
+   * NACK primitive — ACKs the original message only.
+   * Does NOT requeue — caller (processor.ts) decides retry/DLQ strategy.
+   *
+   * Why ACK on failure:
+   * The message has been handled (even if unsuccessfully). The caller is
+   * responsible for requeuing if needed. Leaving in PEL would cause
+   * xclaim to redeliver it — which is wrong if the caller already requeued.
+   */
+  async nack(streamKey: string, messageId: string): Promise<void> {
+    await this.streamdb.xack(streamKey, this.group, messageId);
+  }
+
+  /**
+   * Reclaim messages that have been in PEL longer than visibilityTimeoutMs.
+   * These are jobs from workers that crashed before ACKing.
+   *
+   * Uses XCLAIM to transfer ownership to this consumer so they get reprocessed.
+   * Runs every read cycle — overhead is negligible at normal PEL sizes.
+   *
+   * ioredis XPENDING tuple: [id, consumer, idleMs, deliveryCount]
+   */
+  async #claimIdleMessages(streamKey: string): Promise<void> {
+    try {
+      const pending = await this.streamdb.xpending(
+        streamKey,
+        this.group,
+        '-',
+        '+',
+        this.readCount,
+      ) as [string, string, number, number][] | undefined;
+
+      if (!pending?.length) return;
+
+      const claimIds = pending
+        .filter((msg) => msg[2] > this.visibilityTimeoutMs) // index 2 = idleMs
+        .map((msg) => msg[0]); // index 0 = stream entry ID
+
+      if (!claimIds.length) return;
+
+      await this.streamdb.xclaim(
+        streamKey,
+        this.group,
+        this.consumerId,
+        this.visibilityTimeoutMs,
+        ...claimIds,
+      );
+    } catch (err) {
+      // Non-fatal — missed claim means delayed redelivery, not data loss
+      console.warn('[remq] xclaim failed (non-fatal):', err);
+    }
+  }
+
+  /**
+   * Sanitize raw Redis Stream output into typed Message objects.
+   *
+   * Deduplicates by jobId within the batch — handles edge case where
+   * the same job appears twice in a single read (e.g. after xclaim race).
+   */
+  #sanitize(
+    stream: [string, [string, string][]][],
     queueName: string,
   ): Message[] {
     if (!stream?.[0]?.[1]) return [];
 
-    const messages = stream[0][1];
-    const processedIds = new Set<string>(); // Track processed job IDs
+    const seen = new Set<string>();
 
-    return messages
-      .map(([messageId, [_, jobDataStr]]) => {
+    return stream[0][1]
+      .map(([messageId, fields]) => {
         try {
-          // Ensure jobDataStr is a valid JSON string
-          if (!jobDataStr || typeof jobDataStr !== 'string') {
-            console.error('Invalid job data:', jobDataStr);
+          // Fields are [key, value, key, value, ...] — find 'data' key
+          const dataIndex = fields.indexOf('data');
+          if (dataIndex === -1 || !fields[dataIndex + 1]) {
+            console.error(
+              '[remq] Missing data field in stream entry:',
+              messageId,
+            );
             return null;
           }
 
-          const jobData = JSON.parse(jobDataStr);
-
+          const jobData = JSON.parse(fields[dataIndex + 1]);
           if (!jobData) {
-            console.error('Failed to parse job data:', jobDataStr);
+            console.error('[remq] Failed to parse job data for:', messageId);
             return null;
           }
 
@@ -159,34 +236,23 @@ export class StreamReader {
             streamKey: `${queueName}-stream`,
             data: {
               ...jobData,
-              messageId, // Include messageId in data like old worker
+              messageId,
             },
           } as Message;
         } catch (error) {
-          console.error('Error parsing job data:', error);
-          console.error('Raw job data:', jobDataStr);
+          console.error('[remq] Error parsing stream entry:', messageId, error);
           return null;
         }
       })
       .filter((msg): msg is Message => {
         if (!msg) return false;
 
-        // Only process unique jobs based on ID, name and queue (like old worker line 239-245)
-        const msgData = msg.data as any;
-        const jobIdentifier =
-          `${msgData.id}:${msgData.state?.name}:${msgData.state?.queue}`;
-        if (processedIds.has(jobIdentifier)) {
-          return false;
-        }
-        processedIds.add(jobIdentifier);
+        // Dedup within batch by jobId + event + queue
+        const key =
+          `${msg.data.id}:${msg.data.state?.name}:${msg.data.state?.queue}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
         return true;
       });
-  }
-
-  /**
-   * Acknowledges a message (for compatibility, though we ACK after reading)
-   */
-  async ack(streamKey: string, messageId: string): Promise<void> {
-    await this.streamdb.xack(streamKey, this.group, messageId);
   }
 }

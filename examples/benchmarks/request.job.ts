@@ -9,10 +9,11 @@ interface OnRequestData {
 export const requestJob = defineJob<Record<string, unknown>, OnRequestData>(
   'request',
   async (ctx) => {
+    console.log('requestJob', ctx.id);
     benchmark.enter();
     benchmark.configure({
       totalJobs: 1000,
-      simulatedWorkMs: 0,
+      simulatedWorkMs: 50,
     });
     const delayMs = benchmark.getConfig().simulatedWorkMs;
     await new Promise((r) => setTimeout(r, delayMs));

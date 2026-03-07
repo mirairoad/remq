@@ -1,27 +1,37 @@
-import type { ConsumerOptions } from '../../types/consumer.ts';
-import type { Message, MessageContext } from '../../types/message.ts';
-import { StreamReader } from './stream-reader.ts';
-import { ConcurrencyPool } from './concurrency-pool.ts';
-
 /**
- * Consumer - Runtime engine for processing messages from Redis Streams
+ * Consumer — v0.40.0
  *
- * Based on old worker's robust processJobsLoop logic
+ * Runtime engine for processing messages from Redis Streams.
+ *
+ * Design principles:
+ * - Fill-then-drain: read ALL streams before dispatching any messages
+ * - Real ACK/NACK: MessageContext.ack/nack are live operations, not no-ops
+ * - Error isolation: one message failure never affects sibling messages
+ * - Self-contained: ensureConsumerGroup called in start(), no caller setup required
+ * - Stable consumer ID: hostname + pid for multi-instance visibility in Redis
  */
+
+import type {
+  ConsumerOptions,
+  Message,
+  MessageContext,
+} from '../../types/index.ts';
+import { StreamReader } from './stream-reader.ts';
+
 export class Consumer extends EventTarget {
   private readonly streamdb: ConsumerOptions['streamdb'];
-  private readonly streams: string[];
+  private readonly streams: string[]; // sorted by priority ascending (lower number = higher priority)
   private readonly group: string;
   private readonly consumerId: string;
   private readonly handler: ConsumerOptions['handler'];
   private readonly streamReader: StreamReader;
-  private readonly concurrencyPool: ConcurrencyPool;
   private readonly pollIntervalMs: number;
+  private readonly maxConcurrency: number;
 
   #isProcessing = false;
   #processingController = new AbortController();
   #processingFinished: Promise<void> = Promise.resolve();
-  readonly #activeJobs = new Set<Promise<void>>(); // Like old worker line 63
+  readonly #activeJobs = new Set<Promise<void>>();
   #consecutiveRedisErrors = 0;
 
   constructor(options: ConsumerOptions) {
@@ -36,55 +46,43 @@ export class Consumer extends EventTarget {
     }
 
     this.streamdb = options.streamdb;
-    this.streams = options.streams;
     this.group = options.group || 'processor';
-    this.consumerId = options.consumerId || this.generateStableConsumerId();
-    this.handler = options.handler;
-    this.pollIntervalMs = options.pollIntervalMs ?? 3000; // Like old worker line 115
 
-    const concurrency = options.concurrency ?? 1;
-    this.concurrencyPool = new ConcurrencyPool(concurrency);
+    // Sort streams by priority — lower number = higher priority = read first
+    // Streams not in the priority map get Infinity (read last)
+    // Example: { 'payments-stream': 1, 'sync-stream': 2 }
+    const priorityMap = options.streamPriority ?? {};
+    this.streams = [...options.streams].sort((a, b) => {
+      const pa = priorityMap[a] ?? Infinity;
+      const pb = priorityMap[b] ?? Infinity;
+      return pa - pb;
+    });
+    this.consumerId = options.consumerId || this.#generateConsumerId();
+    this.handler = options.handler;
+    this.pollIntervalMs = options.pollIntervalMs ?? 3000;
+    this.maxConcurrency = options.concurrency ?? 1;
 
     this.streamReader = new StreamReader(
       this.streamdb,
       this.group,
       this.consumerId,
       options.read?.count ?? 200,
-      options.read?.blockMs ?? 1000,
+      options.read?.blockMs ?? 50,
+      options.visibilityTimeoutMs ?? 30_000,
     );
   }
 
   /**
-   * Generates a stable consumer ID
-   */
-  generateStableConsumerId(): string {
-    try {
-      // @ts-ignore - Deno hostname might not be available in all environments
-      const hostname = typeof Deno !== 'undefined' && Deno.hostname
-        ? Deno.hostname()
-        : 'unknown';
-
-      // @ts-ignore - Deno.pid might not be in types
-      const pid = typeof Deno !== 'undefined' && Deno.pid !== undefined
-        ? Deno.pid
-        : Date.now();
-
-      return `consumer-${hostname}-${pid}`;
-    } catch {
-      return `consumer-${Date.now()}-${
-        Math.random().toString(36).substring(2, 9)
-      }`;
-    }
-  }
-
-  /**
-   * Starts processing messages (like old worker processJobs)
+   * Start the processing loop.
+   * Ensures consumer groups exist for all registered streams before starting.
+   * Self-contained — does not rely on caller to have set up groups.
    */
   async start(options: { signal?: AbortSignal } = {}): Promise<void> {
-    // Ensure consumer groups once at startup, not on every poll (avoids Redis round trip per stream per cycle)
+    // Ensure consumer groups once at startup — not on every poll cycle
     for (const streamKey of this.streams) {
       await this.streamReader.ensureConsumerGroup(streamKey);
     }
+
     const { signal } = options;
     const controller = this.#processingController;
     this.#processingFinished = this.#processingFinished.then(() =>
@@ -94,7 +92,17 @@ export class Consumer extends EventTarget {
   }
 
   /**
-   * Main processing loop (copied from old worker processJobsLoop)
+   * Main processing loop.
+   *
+   * Fill-then-drain pattern:
+   * 1. Read ALL streams into a single message buffer (no break on first hit)
+   * 2. Dispatch messages up to concurrency limit
+   * 3. Tight 50ms spin when at concurrency limit — don't wait full pollIntervalMs
+   * 4. Back off exponentially on Redis errors
+   *
+   * Why fill-then-drain:
+   * Breaking on first stream with messages starves other queues under load.
+   * At high throughput on default-stream, scheduled-stream would never get read.
    */
   async #processLoop(
     options: { signal?: AbortSignal; controller: AbortController },
@@ -107,66 +115,63 @@ export class Consumer extends EventTarget {
         if (signal?.aborted || controller.signal.aborted) break;
 
         try {
-          // FIX 6: read ALL streams into buffer — no break on first hit.
-          // Previously broke after the first stream with messages, leaving
-          // other queues unread and workers starved between poll cycles.
+          // Fill: read all streams into buffer — no break on first hit
           const messages: Message[] = [];
-
           for (const streamKey of this.streams) {
-            const queueName = streamKey.replace('-stream', '');
-            const queueMessages = await this.streamReader.readQueueStream(
-              queueName,
-            );
-            messages.push(...queueMessages);
-            // no break — drain every stream before dispatching
+            const queueName = streamKey.replace(/-stream$/, '');
+            const batch = await this.streamReader.readQueueStream(queueName);
+            messages.push(...batch);
+            // No break — drain every stream before dispatching
           }
 
           if (messages.length === 0) {
-            await this.delay(this.pollIntervalMs);
+            await this.#delay(this.pollIntervalMs);
             continue;
           }
 
+          // Successfully read — reset error backoff
           this.#consecutiveRedisErrors = 0;
 
+          // Drain: dispatch messages up to concurrency limit
           for (const message of messages) {
             if (signal?.aborted || controller.signal.aborted) return;
 
-            // FIX 6: tight spin when at concurrency limit — 50ms instead of
-            // pollIntervalMs (3000ms). Workers were stalling up to 3 seconds
-            // waiting for a slot to open even with a full message buffer.
+            // Tight spin when at concurrency limit — 50ms not pollIntervalMs
             while (
-              this.#activeJobs.size >= this.concurrencyPool.maxConcurrency
+              this.#activeJobs.size >= this.maxConcurrency
             ) {
               await Promise.race([
-                Promise.race(this.#activeJobs),
-                this.delay(50),
+                Promise.race(Array.from(this.#activeJobs)),
+                this.#delay(50),
               ]);
               if (signal?.aborted || controller.signal.aborted) return;
             }
 
-            const taskPromise = (async () => {
+            const task = (async () => {
               try {
                 await this.#processMessage(message);
               } catch (error) {
-                console.error(`Message ${message.id} processing error:`, error);
+                // Error isolation — one message failure never kills the loop
+                console.error(`[remq] Message ${message.id} error:`, error);
               }
             })();
 
-            this.#activeJobs.add(taskPromise);
-            taskPromise.finally(() => this.#activeJobs.delete(taskPromise));
+            this.#activeJobs.add(task);
+            task.finally(() => this.#activeJobs.delete(task));
           }
         } catch (error) {
-          console.error('Error in processing loop:', error);
+          console.error('[remq] Processing loop error:', error);
           const isTransient = this.#isRedisTransientError(error);
           const delayMs = isTransient
             ? Math.min(
-              this.pollIntervalMs * Math.pow(2, this.#consecutiveRedisErrors),
-              30000,
+              this.pollIntervalMs *
+                Math.pow(2, this.#consecutiveRedisErrors),
+              30_000,
             )
             : this.pollIntervalMs;
           if (isTransient) this.#consecutiveRedisErrors += 1;
           else this.#consecutiveRedisErrors = 0;
-          await this.delay(delayMs);
+          await this.#delay(delayMs);
         }
       }
     } finally {
@@ -175,43 +180,48 @@ export class Consumer extends EventTarget {
   }
 
   /**
-   * Processes a single message (messages already ACKed after reading)
+   * Process a single message.
+   *
+   * Creates a real MessageContext with live ack/nack operations.
+   * ACK is NOT called here — processor.ts calls ctx.ack() after handler success
+   * and ctx.nack() after final failure. Consumer has no opinion on ACK timing.
+   *
+   * Error isolation: errors are caught by the task wrapper in #processLoop.
    */
   async #processMessage(message: Message): Promise<void> {
     const startTime = Date.now();
 
-    // Create no-op context (messages already ACKed after reading)
+    // Real ACK/NACK — not no-ops
     const ctx: MessageContext = {
       message,
-      ack: async () => {
-        // Already ACKed after reading - no-op
-      },
-      nack: async () => {
-        // Already ACKed after reading - no-op
-      },
+      ack: () => this.streamReader.ack(message.streamKey, message.id),
+      nack: (_error: Error) =>
+        this.streamReader.nack(message.streamKey, message.id),
     };
 
-    // Emit started event
-    this.#emitStarted(message);
+    this.#emitEvent('started', { message });
 
     try {
-      // Call handler (messages already ACKed, processing key acts as lock)
       await this.handler(message, ctx);
-
-      const duration = Date.now() - startTime;
-      this.#emitSucceeded(message, duration);
+      this.#emitEvent('succeeded', {
+        message,
+        duration: Date.now() - startTime,
+      });
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      const duration = Date.now() - startTime;
-
-      // Error handling - message already ACKed, errors tracked via Redis keys
-      this.#emitFailed(message, err, duration);
-      this.#emitError(err);
+      this.#emitEvent('failed', {
+        message,
+        error: err,
+        duration: Date.now() - startTime,
+      });
+      this.#emitEvent('error', { error: err });
+      throw err; // Re-throw so task wrapper logs it
     }
   }
 
   /**
-   * Stops processing
+   * Stop the processing loop.
+   * Does not wait for active jobs — call drain() after stop() for graceful shutdown.
    */
   stop(): void {
     this.#processingController.abort();
@@ -219,38 +229,51 @@ export class Consumer extends EventTarget {
   }
 
   /**
-   * Whether the consumer is currently processing
+   * Wait for all in-flight jobs to complete.
+   * Call after stop() for graceful shutdown.
    */
+  async waitForActiveJobs(): Promise<void> {
+    if (this.#activeJobs.size > 0) {
+      await Promise.all(Array.from(this.#activeJobs));
+    }
+  }
+
   get isProcessing(): boolean {
     return this.#isProcessing;
   }
 
-  /**
-   * Promise that resolves when processing loop exits
-   */
   get processingFinished(): Promise<void> {
     return this.#processingFinished;
   }
 
-  /**
-   * Set of currently running tasks
-   */
   get activeJobs(): Set<Promise<void>> {
     return this.#activeJobs;
   }
 
   /**
-   * Waits for all active tasks to complete
+   * Generate a stable consumer ID from hostname + pid.
+   * Visible in Redis XPENDING output — useful for multi-instance debugging.
+   * Format: consumer-{hostname}-{pid}
    */
-  async waitForActiveJobs(): Promise<void> {
-    if (this.#activeJobs.size > 0) {
-      await Promise.all(this.#activeJobs);
+  #generateConsumerId(): string {
+    try {
+      const hostname = typeof Deno !== 'undefined' && Deno.hostname
+        ? Deno.hostname()
+        : 'unknown';
+      const pid = typeof Deno !== 'undefined' && Deno.pid !== undefined
+        ? Deno.pid
+        : Date.now();
+      return `consumer-${hostname}-${pid}`;
+    } catch {
+      return `consumer-${Date.now()}-${
+        Math.random().toString(36).substring(2, 9)
+      }`;
     }
   }
 
   /**
-   * Heuristic: true if the error is a transient Redis condition (LOADING, connection reset, etc.)
-   * so we can back off instead of hammering Redis.
+   * Heuristic: true if the error is a transient Redis condition.
+   * Transient errors trigger exponential backoff instead of fixed pollIntervalMs.
    */
   #isRedisTransientError(error: unknown): boolean {
     const msg = typeof (error as { message?: string })?.message === 'string'
@@ -267,43 +290,11 @@ export class Consumer extends EventTarget {
     );
   }
 
-  /**
-   * Delay utility (like old worker)
-   */
-  private delay(ms: number): Promise<void> {
+  #delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  // Event emitters
-  #emitStarted(message: Message): void {
-    this.dispatchEvent(
-      new CustomEvent('started', {
-        detail: { message },
-      }),
-    );
-  }
-
-  #emitSucceeded(message: Message, duration: number): void {
-    this.dispatchEvent(
-      new CustomEvent('succeeded', {
-        detail: { message, duration },
-      }),
-    );
-  }
-
-  #emitFailed(message: Message, error: Error, duration: number): void {
-    this.dispatchEvent(
-      new CustomEvent('failed', {
-        detail: { message, error, duration },
-      }),
-    );
-  }
-
-  #emitError(error: Error): void {
-    this.dispatchEvent(
-      new CustomEvent('error', {
-        detail: { error },
-      }),
-    );
+  #emitEvent(type: string, detail: Record<string, unknown>): void {
+    this.dispatchEvent(new CustomEvent(type, { detail }));
   }
 }

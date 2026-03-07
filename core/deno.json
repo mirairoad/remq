@@ -1,6 +1,6 @@
 {
   "name": "@hushkey/remq",
-  "version": "0.31.0",
+  "version": "0.40.0",
   "description": "Redis-backed job queue and scheduler for Deno. Syntax inspired by BullMQ and RabbitMQ — ergonomics and flexibility first.",
   "license": "MIT",
   "repository": {
@@ -9,8 +9,7 @@
   },
   "exports": "./mod.ts",
   "imports": {
-    "cron-schedule": "jsr:@p4sca1/cron-schedule@^6.0.0",
-    "ioredis": "npm:ioredis@^5.9.3"
+    "ioredis": "npm:ioredis@^5.10.0"
   },
   "publish": {
     "exclude": [

@@ -1,46 +1,45 @@
+/**
+ * Processor — v0.40.0
+ *
+ * Policy layer wrapping Consumer. Owns all job lifecycle decisions:
+ * - Delay: sleep then requeue, never tight spin
+ * - Retry: fixed or exponential backoff, requeue with decremented retryCount
+ * - DLQ: route to dead letter queue after retries exhausted
+ * - ACK: called after successful handler completion (real XACK)
+ * - NACK: called after final failure (real XACK, removes from PEL)
+ *
+ * Debounce is handled per-handler in mod.ts — not here.
+ * Stream reader primitives (XACK, XTRIM) are owned by stream-reader.ts.
+ */
+
 import { Consumer } from '../consumer/consumer.ts';
 import type {
+  Message,
+  MessageContext,
   ProcessableMessage,
   ProcessorOptions,
-} from '../../types/processor.ts';
-import type { Message, MessageContext } from '../../types/message.ts';
-import { DebounceManager } from './debounce-manager.ts';
-import type { RedisConnection } from '../../types/redis-client.ts';
+} from '../../types/index.ts';
 
-/**
- * Processor layer - wraps Consumer with policy logic (retries, delays, DLQ, debouncing)
- *
- * Based on old worker's processTaskItem logic for handling delays
- */
+/** Max retry delay for exponential backoff — 1 hour */
+const MAX_RETRY_DELAY_MS = 3_600_000;
+
 export class Processor {
   private readonly consumer: Consumer;
-  private readonly streamdb: RedisConnection;
+  private readonly streamdb: ProcessorOptions['streamdb'];
   private readonly retryConfig: ProcessorOptions['retry'];
   private readonly dlqConfig: ProcessorOptions['dlq'];
-  private readonly debounceManager?: DebounceManager;
-  #debounceCleanupIntervalId?: ReturnType<typeof setInterval>;
+  private readonly jobStateTtlSeconds?: number;
+  private readonly maxLogsPerJob?: number;
 
   constructor(options: ProcessorOptions) {
     this.streamdb = options.streamdb;
     this.retryConfig = options.retry;
     this.dlqConfig = options.dlq;
+    this.jobStateTtlSeconds = options.jobStateTtlSeconds;
+    this.maxLogsPerJob = options.maxLogsPerJob;
 
-    // Setup debounce if configured (DebounceManager expects seconds, not ms)
-    if (options.debounce) {
-      const debounceMs = typeof options.debounce === 'number'
-        ? options.debounce
-        : options.debounce.debounce ?? 0;
-      const debounceSeconds = Math.ceil(debounceMs / 1000); // Convert ms to seconds
-      const keyFn = typeof options.debounce === 'object'
-        ? options.debounce.keyFn
-        : undefined;
-      this.debounceManager = new DebounceManager(debounceSeconds, keyFn);
-    }
+    const wrappedHandler = this.#createWrappedHandler(options.consumer.handler);
 
-    // Create wrapped handler that applies processor policies
-    const wrappedHandler = this.createWrappedHandler(options.consumer.handler);
-
-    // Create consumer with wrapped handler
     this.consumer = new Consumer({
       ...options.consumer,
       handler: wrappedHandler,
@@ -48,195 +47,210 @@ export class Processor {
   }
 
   /**
-   * Creates a wrapped handler that applies processor policies
-   * Based on old worker's processTaskItem logic for delays
+   * Creates the wrapped handler that applies all processor policies.
+   *
+   * Order of operations:
+   * 1. Check delayUntil — sleep then requeue if not yet time
+   * 2. Execute handler
+   * 3. On success — ctx.ack()
+   * 4. On failure — retry or DLQ, then ctx.nack()
    */
-  private createWrappedHandler(
+  #createWrappedHandler(
     originalHandler: ProcessorOptions['consumer']['handler'],
   ): (message: Message, ctx: MessageContext) => Promise<void> {
     return async (message: Message, ctx: MessageContext) => {
-      const processableMessage = message as unknown as ProcessableMessage;
+      const msg = message as unknown as ProcessableMessage;
+      const jobData = msg.data as any;
 
-      // 1. Check debounce
-      if (this.debounceManager) {
-        if (
-          !this.debounceManager.shouldProcess(
-            processableMessage as {
-              id: string;
-              data?: unknown;
-              [key: string]: unknown;
-            },
-          )
-        ) {
-          await ctx.ack();
-          return;
-        }
-      }
-
-      // 2. Check delayUntil (like old worker processTaskItem line 165-209)
-      const delayUntil = (processableMessage.data as any)?.delayUntil;
+      // ── 1. Delay check ────────────────────────────────────────────────────
+      const delayUntil = jobData?.delayUntil;
       if (delayUntil && typeof delayUntil === 'number') {
         const now = Date.now();
         if (delayUntil > now) {
-          // Message is delayed - re-add to stream (like old worker line 198-207)
-          await this.requeueMessage(processableMessage);
-          await ctx.ack(); // Already ACKed, but keep for compatibility
-          return;
+          // Sleep up to 30s then requeue — never tight spin
+          const waitMs = Math.min(delayUntil - now, 30_000);
+          await this.#delay(waitMs);
+
+          if (Date.now() < delayUntil) {
+            // Still not time — requeue and ACK original
+            // No state key write — delay is transient
+            await this.#requeueDelay(msg);
+            await ctx.ack();
+            return;
+          }
+          // Past delayUntil after sleep — fall through to execute
         }
       }
 
-      // 3. Execute handler with retry logic
+      // ── 2. Execute handler ────────────────────────────────────────────────
       try {
         await originalHandler(message, ctx);
 
-        if (this.debounceManager) {
-          this.debounceManager.markProcessed(
-            processableMessage as {
-              id: string;
-              data?: unknown;
-              [key: string]: unknown;
-            },
-          );
-        }
+        // ── 3. Success — ACK removes from PEL ────────────────────────────
+        await ctx.ack();
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
-        await this.handleFailure(processableMessage, err, ctx);
+        await this.#handleFailure(msg, err, ctx);
       }
     };
   }
 
   /**
-   * Handles message failure (retries or DLQ routing)
+   * Handle job failure — retry, DLQ, or final failure.
+   *
+   * Flow:
+   * 1. Determine if should retry
+   * 2. If retry — requeue with decremented retryCount + backoff delay, ACK original
+   * 3. If final failure — send to DLQ if configured, NACK original
    */
-  private async handleFailure(
+  async #handleFailure(
     message: ProcessableMessage,
     error: Error,
     ctx: MessageContext,
   ): Promise<void> {
-    const taskDataAny = message.data as any;
-    const retryCount = taskDataAny.retryCount ?? 0;
-    const maxRetries = this.retryConfig?.maxRetries ?? 0;
-    const retryDelayMs = taskDataAny.retryDelayMs ??
+    const jobData = message.data as any;
+    const retryCount = jobData.retryCount ?? 0;
+    const retriedAttempts = jobData.retriedAttempts ?? 0;
+    const retryDelayMs = jobData.retryDelayMs ??
       this.retryConfig?.retryDelayMs ?? 1000;
+    const retryBackoff = jobData.retryBackoff ??
+      this.retryConfig?.retryBackoff ?? 'fixed';
 
-    // Check if should retry
-    const shouldRetry = retryCount > 0 && maxRetries > 0;
-    const attempts = (taskDataAny.retriedAttempts || 0) + 1;
+    const isConfigError = error.message.includes('No handler found') ||
+      error.message.includes('No handlers registered') ||
+      error.message.includes('is undefined');
 
-    if (
-      shouldRetry &&
+    const willRetry = retryCount > 0 &&
+      !isConfigError &&
       (!this.retryConfig?.shouldRetry ||
-        this.retryConfig.shouldRetry(error, attempts))
-    ) {
-      // Re-queue with retry
-      const retryMessage: ProcessableMessage = {
-        ...message,
-        data: {
-          ...message.data,
-          retryCount: retryCount - 1,
-          retriedAttempts: (taskDataAny.retriedAttempts || 0) + 1,
-          delayUntil: Date.now() + retryDelayMs,
-        },
-      };
+        this.retryConfig.shouldRetry(error, retriedAttempts + 1));
 
-      await this.requeueMessage(retryMessage);
+    if (willRetry) {
+      // Calculate backoff delay
+      const backoffMs = retryBackoff === 'exponential'
+        ? Math.min(
+          retryDelayMs * Math.pow(2, retriedAttempts),
+          MAX_RETRY_DELAY_MS,
+        )
+        : retryDelayMs;
+
+      const retryJob = {
+        ...jobData,
+        delayUntil: Date.now() + backoffMs,
+        lockUntil: Date.now(),
+        retryCount: retryCount - 1,
+        retriedAttempts: retriedAttempts + 1,
+        logs: [
+          ...(jobData.logs || []),
+          {
+            message: `retrying — attempt ${
+              retriedAttempts + 1
+            }, delay ${backoffMs}ms`,
+            timestamp: Date.now(),
+          },
+        ],
+      };
+      this.#trimLogs(retryJob);
+
+      // Requeue retry entry, ACK original — order matters
+      await this.#xadd(message.streamKey, JSON.stringify(retryJob));
       await ctx.ack();
       return;
     }
 
+    // ── Final failure ─────────────────────────────────────────────────────
+
     // Send to DLQ if configured
     if (this.dlqConfig?.streamKey) {
-      const dlqAttempts = taskDataAny.retriedAttempts || 0;
-      const shouldSendToDLQ = this.dlqConfig.shouldSendToDLQ;
-      if (!shouldSendToDLQ || shouldSendToDLQ(message, error, dlqAttempts)) {
-        await this.sendToDLQ(message, error, dlqAttempts);
+      const attempts = retriedAttempts;
+      const shouldSend = this.dlqConfig.shouldSendToDLQ;
+      if (!shouldSend || shouldSend(message, error, attempts)) {
+        await this.#sendToDLQ(message, error, attempts);
       }
     }
 
-    await ctx.ack();
+    // NACK — ACKs original, removes from PEL
+    // State key (failed:execId) is written by mod.ts processJob
+    await ctx.nack(error);
   }
 
   /**
-   * Add entry to stream. No MAXLEN at add time — consumer trims after ACK with MINID.
+   * Requeue a delayed message back to the stream.
+   * Preserves original timestamp and delayUntil — no state key write.
+   */
+  async #requeueDelay(message: ProcessableMessage): Promise<void> {
+    const jobData = message.data as any;
+    const messageData = {
+      ...jobData,
+      timestamp: jobData.timestamp || Date.now(),
+    };
+    await this.#xadd(message.streamKey, JSON.stringify(messageData));
+  }
+
+  /**
+   * Send a message to the Dead Letter Queue stream.
+   */
+  async #sendToDLQ(
+    message: ProcessableMessage,
+    error: Error,
+    attempts: number,
+  ): Promise<void> {
+    const dlqStreamKey = this.dlqConfig?.streamKey || 'dlq-stream';
+    const dlqMessage = {
+      ...message.data,
+      dlqReason: error.message,
+      dlqStack: error.stack,
+      dlqTimestamp: Date.now(),
+      attempts,
+    };
+    await this.#xadd(dlqStreamKey, JSON.stringify(dlqMessage));
+  }
+
+  /**
+   * Write to stream — no MAXLEN at emit time.
+   * Trimming is handled post-ACK in stream-reader.ts using MINID.
    */
   async #xadd(streamKey: string, dataJson: string): Promise<string | null> {
     return await this.streamdb.xadd(streamKey, '*', 'data', dataJson);
   }
 
   /**
-   * Re-queues a message to the stream (like old worker line 198-207)
-   * Preserves original timestamp
+   * Trim logs array to maxLogsPerJob if configured.
+   * Removes oldest entries first.
    */
-  private async requeueMessage(message: ProcessableMessage): Promise<void> {
-    const streamKey = message.streamKey;
-    const messageDataAny = message.data as any;
+  #trimLogs(jobEntry: { logs?: unknown[] }): void {
+    const max = this.maxLogsPerJob;
+    if (
+      typeof max !== 'number' ||
+      max <= 0 ||
+      !jobEntry.logs?.length ||
+      jobEntry.logs.length <= max
+    ) return;
+    jobEntry.logs.splice(0, jobEntry.logs.length - max);
+  }
 
-    // Preserve original timestamp (like old worker line 203-206)
-    const originalTimestamp = messageDataAny.timestamp || Date.now();
-    const messageData = {
-      ...message.data,
-      timestamp: originalTimestamp,
-    };
-
-    await this.#xadd(streamKey, JSON.stringify(messageData));
+  #delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
-   * Sends a message to the Dead Letter Queue
-   */
-  private async sendToDLQ(
-    message: ProcessableMessage,
-    error: Error,
-    attempts: number,
-  ): Promise<void> {
-    const dlqStreamKey = this.dlqConfig?.streamKey || 'dlq-stream';
-
-    const dlqMessage = {
-      ...message.data,
-      dlqReason: error.message,
-      dlqTimestamp: Date.now(),
-      attempts,
-    };
-
-    await this.#xadd(dlqStreamKey, JSON.stringify(dlqMessage));
-  }
-
-  /**
-   * Starts processing
+   * Start processing.
    */
   async start(options?: { signal?: AbortSignal }): Promise<void> {
-    if (this.debounceManager) {
-      this.#debounceCleanupIntervalId = setInterval(() => {
-        this.debounceManager?.cleanup();
-      }, 5 * 60 * 1000); // every 5 minutes
-    }
     await this.consumer.start(options);
   }
 
   /**
-   * Stops processing
+   * Stop processing.
    */
   stop(): void {
-    if (this.#debounceCleanupIntervalId != null) {
-      clearInterval(this.#debounceCleanupIntervalId);
-      this.#debounceCleanupIntervalId = undefined;
-    }
     this.consumer.stop();
   }
 
   /**
-   * Waits for all active tasks to complete
+   * Wait for all in-flight jobs to complete.
    */
   async waitForActiveJobs(): Promise<void> {
     await this.consumer.waitForActiveJobs();
-  }
-
-  /**
-   * Cleanup debounce manager
-   */
-  cleanup(): void {
-    if (this.debounceManager) {
-      this.debounceManager.cleanup();
-    }
   }
 }

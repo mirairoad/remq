@@ -1,31 +1,30 @@
+import { HandlerOptions, JobDefinition, JobHandler } from './types/index.ts';
+
 /**
- * Core V2 - Main exports
+ * Type-safe job definition factory.
+ * Use instead of remq.on() directly when you want ctx.data typed.
  *
- * High-level API for job management
+ * @example
+ * const syncJob = defineJob<AppCtx, { propertyId: number }>({
+ *   event: 'property.sync',
+ *   handler: async (ctx) => {
+ *     ctx.data.propertyId // ← typed as number
+ *   },
+ *   options: { queue: 'sync', attempts: 3 }
+ * })
+ *
+ * remq.on(syncJob)
  */
+export function defineJob<
+  TApp extends Record<string, unknown> = Record<string, unknown>,
+  TData = unknown,
+>(
+  event: string,
+  handler: JobHandler<TApp, TData>,
+  options?: HandlerOptions,
+): JobDefinition<TApp, TData> {
+  return { event, handler, options };
+}
 
 export { Remq } from './libs/remq/mod.ts';
-export { defineJob } from './types/remq.ts';
-export type {
-  EmitFunction,
-  EmitOptions,
-  HandlerOptions,
-  JobContext,
-  JobDefinition,
-  JobHandler,
-  JobManagerOptions,
-} from './types/remq.ts';
-
-// Re-export lower-level APIs if needed
-export { Processor } from './libs/processor/mod.ts';
-export { Consumer } from './libs/consumer/mod.ts';
-export type {
-  ConsumerOptions,
-  Message,
-  MessageHandler,
-  ProcessorOptions,
-} from './types/index.ts';
-
-// Export SDK
-export { RemqAdmin } from './libs/remq-admin/mod.ts';
-export type { Job, ListOptions, QueueInfo, QueueStats } from './types/admin.ts';
+export { RemqManagement } from './libs/remq-management/mod.ts';

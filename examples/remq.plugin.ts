@@ -1,6 +1,7 @@
-// import { Remq } from '@core/libs/remq/mod.ts';
-import { Remq } from '@hushkey/remq';
-import { RemqAdmin } from '@core/libs/remq-admin/mod.ts';
+import { Remq } from '@core/mod.ts';
+import { RemqManagement } from '@core/mod.ts';
+// import { Remq } from '@hushkey/remq';
+// import { RemqAdmin } from '@core/libs/remq/mod.ts';
 import { Redis } from 'ioredis';
 
 // Create Redis Option
@@ -57,6 +58,6 @@ const remq = Remq.create({
   },
 });
 
-const admin = new RemqAdmin(db, remq);
+const management = new RemqManagement({ db, streamdb, remq });
 
-export { admin, remq };
+export { management, remq };
