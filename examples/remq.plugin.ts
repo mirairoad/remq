@@ -41,8 +41,7 @@ const remq = Remq.create({
   streamdb,
   ctx: contextApp,
   expose: 4000, // WebSocket port; clients can send header x-get-broadcast: true to receive all task updates
-  concurrency: 10, // the number of messages to process concurrently uses workers steal process strategy
-  debug: false, // log PID, worker_id (slot 0..concurrency-1), job_id (e.g. [remq] PID 12345 worker_id 2 job_id on-request-1)
+  concurrency: 1, // the number of messages to process concurrently uses workers steal process strategy
   processor: {
     // Throughput tip: higher pollIntervalMs lets the stream fill; short blockMs returns quickly with a batch.
     // Then high concurrency (e.g. 10) drains the batch in parallel — often faster than aggressive polling.

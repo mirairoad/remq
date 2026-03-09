@@ -75,12 +75,14 @@ export class Consumer extends EventTarget {
   /**
    * Start the processing loop.
    * Ensures consumer groups exist for all registered streams before starting.
+   * Claims any orphaned PEL entries from previous runs before the read loop begins.
    * Self-contained — does not rely on caller to have set up groups.
    */
   async start(options: { signal?: AbortSignal } = {}): Promise<void> {
-    // Ensure consumer groups once at startup — not on every poll cycle
+    // Ensure consumer groups and claim orphaned PEL entries once at startup
     for (const streamKey of this.streams) {
       await this.streamReader.ensureConsumerGroup(streamKey);
+      await this.streamReader.claimOrphanedOnStartup(streamKey);
     }
 
     const { signal } = options;
@@ -221,7 +223,7 @@ export class Consumer extends EventTarget {
 
   /**
    * Stop the processing loop.
-   * Does not wait for active jobs — call drain() after stop() for graceful shutdown.
+   * Does not wait for active jobs — call waitForActiveJobs() after stop() for graceful shutdown.
    */
   stop(): void {
     this.#processingController.abort();
@@ -251,19 +253,17 @@ export class Consumer extends EventTarget {
   }
 
   /**
-   * Generate a stable consumer ID from hostname + pid.
-   * Visible in Redis XPENDING output — useful for multi-instance debugging.
-   * Format: consumer-{hostname}-{pid}
+   * Generate a stable consumer ID from hostname.
+   * Stable across restarts — no pid, no random suffix.
+   * For multi-instance deployments set REMQ_CONSUMER_ID env var.
+   * Format: consumer-{hostname}
    */
   #generateConsumerId(): string {
     try {
       const hostname = typeof Deno !== 'undefined' && Deno.hostname
         ? Deno.hostname()
         : 'unknown';
-      const pid = typeof Deno !== 'undefined' && Deno.pid !== undefined
-        ? Deno.pid
-        : Date.now();
-      return `consumer-${hostname}-${pid}`;
+      return `consumer-${hostname}`;
     } catch {
       return `consumer-${Date.now()}-${
         Math.random().toString(36).substring(2, 9)

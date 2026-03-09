@@ -318,8 +318,6 @@ export interface JobManagerOptions<
   concurrency?: number;
   /** WebSocket gateway port for real-time job updates. */
   expose?: number;
-  /** Enable debug logging. Default false. */
-  debug?: boolean;
   processor?: {
     /** State key TTL in seconds. Required for production — prevents unbounded key growth. */
     jobStateTtlSeconds?: number;

@@ -8,6 +8,7 @@ import { Redis } from 'ioredis';
 import { Processor } from '../processor/processor.ts';
 import { DebounceManager } from '../processor/debounce-manager.ts';
 import { createWsGateway } from '../gateways/ws.gateway.ts';
+import { debug } from '../../utils/logger.ts';
 import type {
   EmitAsyncFunction,
   EmitFunction,
@@ -61,7 +62,6 @@ export class Remq<
   };
   private readonly concurrency: number;
   private readonly processorOptions: JobManagerOptions<TApp>['processor'];
-  private readonly debug: boolean;
 
   private handlers: Map<string, JobHandler<TApp, any>> = new Map();
   private handlerDebounce: Map<string, DebounceManager> = new Map();
@@ -116,7 +116,7 @@ export class Remq<
       const streamDbIndex = (options.redis.db ?? 0) + 1;
       if (streamDbIndex > 15) {
         console.warn(
-          `[remq] stream connection on db ${streamDbIndex} — Redis default max is 15. ` +
+          ` stream connection on db ${streamDbIndex} — Redis default max is 15. ` +
             'Increase "databases" in redis.conf or pass streamdb explicitly.',
         );
       }
@@ -126,20 +126,19 @@ export class Remq<
         enableReadyCheck: false,
         maxRetriesPerRequest: null,
       });
-      console.log(
-        `[remq] stream connection auto-created on db ${streamDbIndex}`,
+      debug(
+        ` stream connection auto-created on db ${streamDbIndex}`,
       );
     } else {
       this.streamdb = this.db;
-      console.warn(
-        '[remq] streamdb/redis not provided — reusing db connection for streams. ' +
+      debug(
+        ' streamdb/redis not provided — reusing db connection for streams. ' +
           'XREADGROUP BLOCK can stall admin queries. Pass streamdb or redis to avoid this.',
       );
     }
 
     this.concurrency = options.concurrency ?? 1;
     this.processorOptions = options.processor || {};
-    this.debug = options.debug ?? false;
 
     this.ctx = {
       ...(options.ctx || {} as TApp),
@@ -159,18 +158,20 @@ export class Remq<
   static create<TApp extends Record<string, unknown> = Record<string, unknown>>(
     options: JobManagerOptions<TApp>,
   ): Remq<TApp> {
-    if (Remq.instance) {
-      throw new Error(
-        '[remq] Remq.create() called more than once. Use Remq.getInstance().',
-      );
+    const g = globalThis as Record<string, unknown>;
+    if (g['__remq_instance__']) {
+      Remq.instance = g['__remq_instance__'] as Remq<TApp>;
+      return Remq.instance;
     }
     Remq.instance = new Remq(options);
+    g['__remq_instance__'] = Remq.instance;
     return Remq.instance as Remq<TApp>;
   }
 
   /** Reset singleton — test use only. */
   static _reset(): void {
     Remq.instance = undefined as any;
+    (globalThis as Record<string, unknown>)['__remq_instance__'] = undefined;
   }
 
   /**
@@ -316,7 +317,7 @@ export class Remq<
     this.#setJobState(stateKey, dataJson)
       .then(() => this.#xadd(streamKey, dataJson))
       .catch((err: unknown) => {
-        console.error(`[remq] emit failed for ${event}:`, err);
+        console.error(` emit failed for ${event}:`, err);
       });
 
     return jobId;
@@ -379,7 +380,7 @@ export class Remq<
       try {
         cb(payload);
       } catch (err) {
-        console.error('[remq] jobFinished listener error:', err);
+        console.error(' jobFinished listener error:', err);
       }
     }
   }
@@ -454,7 +455,7 @@ export class Remq<
     // Stream entry is the liveness authority — emit only if stream entry missing
     for (const [, { event, queue, repeat, attempts }] of this.pendingCronJobs) {
       //   const cronLock = await this.db.del(`queues:${queue}:cron-lock:${event}`);
-      //   console.log(`[remq] cron lock deleted for ${event}:`, cronLock);
+      //   console.log(` cron lock deleted for ${event}:`, cronLock);
       const jobId = genJobIdSync(event, {});
       const streamKey = `${queue}-stream`;
 
@@ -477,8 +478,8 @@ export class Remq<
         }
       });
 
-      console.log(
-        `[remq] matching entries for ${event}:`,
+      debug(
+        ` matching entries for ${event}:`,
         matchingEntries.length,
       );
 
@@ -487,8 +488,8 @@ export class Remq<
         const [, ...toDelete] = [...matchingEntries].reverse();
         const idsToDelete = toDelete.map(([id]) => id);
         await this.streamdb.xdel(streamKey, ...idsToDelete);
-        console.log(
-          `[remq] removed ${idsToDelete.length} duplicate stream entries for ${event}`,
+        debug(
+          ` removed ${idsToDelete.length} duplicate stream entries for ${event}`,
         );
       }
 
@@ -521,7 +522,7 @@ export class Remq<
 
     if (this.processor) {
       this.processor.start().catch((err) => {
-        console.error('[remq] Error starting processor:', err);
+        console.error(' Error starting processor:', err);
       });
     }
 
@@ -549,7 +550,7 @@ export class Remq<
           try {
             if (socket.readyState === WebSocket.OPEN) socket.send(payloadStr);
           } catch (err) {
-            console.error('[remq] WS send job_finished error:', err);
+            console.error(' WS send job_finished error:', err);
           }
         }
         const socketsThatHadJob = this.jobIdToSockets.get(payload.jobId);
@@ -560,11 +561,11 @@ export class Remq<
           }
         }
       });
-      console.log(`Remq WS gateway listening on 0.0.0.0:${this.expose}`);
+      debug(`Remq WS gateway listening on 0.0.0.0:${this.expose}`);
     }
 
     const streamList = Array.from(this.queueStreams).join(', ');
-    console.log(
+    debug(
       `Remq started with ${this.queueStreams.size} queue(s) [${streamList}] and concurrency ${this.concurrency}`,
     );
   }
@@ -587,10 +588,10 @@ export class Remq<
       this.wsServer = undefined;
     }
 
-    if (this.processor) {
-      this.processor.stop();
-      await this.drain();
-    }
+    // if (this.processor) {
+    //   this.processor.stop();
+    //     await this.drain();
+    // }
 
     this.isStarted = false;
   }
@@ -626,7 +627,7 @@ export class Remq<
 
       if (!jobData?.state?.name || !jobData?.state?.queue) {
         throw new Error(
-          '[remq] Invalid job data: missing state.name or state.queue',
+          ' Invalid job data: missing state.name or state.queue',
         );
       }
 
@@ -668,7 +669,7 @@ export class Remq<
       const handler = this.handlers.get(handlerKey);
       if (!handler) {
         throw new Error(
-          `[remq] No handler for queue: ${queueName}, event: ${jobName}. ` +
+          ` No handler for queue: ${queueName}, event: ${jobName}. ` +
             `Registered: ${Array.from(this.handlers.keys()).join(', ')}`,
         );
       }
@@ -780,15 +781,6 @@ export class Remq<
         JSON.stringify(processingData),
       );
 
-      if (this.debug) {
-        const pid = typeof Deno !== 'undefined' && Deno.pid != null
-          ? Deno.pid
-          : (typeof process !== 'undefined' &&
-            (process as { pid?: number }).pid) ?? '?';
-        const workerId = this.#workerRunIndex++ % this.concurrency;
-        console.log('[remq] PID', pid, 'worker_id', workerId, 'job_id', jobId);
-      }
-
       // Build handler context
       const handlerCtx = {
         ...this.ctx,
@@ -809,8 +801,31 @@ export class Remq<
         ),
       };
 
-      await handler(handlerCtx);
+      // ── Cron dedup lock ──────────────────────────────────────────────────
+      // Prevents duplicate execution when PEL recovery re-delivers a cron job
+      // that already ran for this scheduled window (e.g. after crash + restart).
+      // Lock key includes delayUntil — unique per scheduled window, not per job.
+      // NX = only set if not exists — first execution wins, duplicates ACK+skip.
+      const cronPattern = jobEntry?.state?.options?.repeat?.pattern;
+      if (cronPattern && jobEntry.repeatCount) {
+        const cronExecLockKey =
+          `queues:${queueName}:cron-exec:${jobId}:${jobEntry.delayUntil}`;
+        const lockTtl = this.processorOptions?.jobStateTtlSeconds ?? 3600;
+        const acquired = await this.db.set(
+          cronExecLockKey,
+          '1',
+          'EX',
+          lockTtl,
+          'NX',
+        );
+        if (!acquired) {
+          // Already ran for this delayUntil window — ACK and skip silently
+          await _ctx.ack();
+          return;
+        }
+      }
 
+      await handler(handlerCtx);
       // Build completed blob from in-memory data — no db.get needed
       const completedData = {
         ...processingData,
@@ -836,6 +851,11 @@ export class Remq<
       );
 
       this.#notifyJobFinished({ jobId, queue: queueName, status: 'completed' });
+
+      // delete cron job from stream
+      if (cronPattern && jobEntry.repeatCount && jobEntry.messageId) {
+        await this.streamdb.xdel(`${queueName}-stream`, _ctx.message.id);
+      }
 
       // Schedule next cron tick
       await this.#scheduleCronNextTick(jobEntry, queueName);
@@ -884,7 +904,6 @@ export class Remq<
 
       // Reschedule cron regardless of failure — cron must never die on error
       await this.#scheduleCronNextTick(jobEntry, queueName);
-
       // Re-throw — processor.ts handles retry/DLQ/NACK
       throw error;
     }
@@ -1019,7 +1038,7 @@ export class Remq<
       try {
         if (socket.readyState === WebSocket.OPEN) socket.send(payloadStr);
       } catch (err) {
-        console.error('[remq] WS send job_update error:', err);
+        console.error(' WS send job_update error:', err);
       }
     }
   }
@@ -1054,7 +1073,7 @@ export class Remq<
       try {
         if (socket.readyState === WebSocket.OPEN) socket.send(payloadStr);
       } catch (err) {
-        console.error('[remq] WS send job_retry error:', err);
+        console.error(' WS send job_retry error:', err);
       }
     }
   }
@@ -1123,9 +1142,9 @@ export class Remq<
     this.shutdownRegistered = true;
 
     const shutdown = async (signal: string) => {
-      console.log(`Received ${signal}, shutting down gracefully...`);
+      debug(`Received ${signal}, shutting down gracefully...`);
       await this.stop();
-      console.log('Shutdown complete');
+      debug('Shutdown complete');
       if (typeof Deno !== 'undefined') {
         // @ts-ignore
         Deno.exit(0);

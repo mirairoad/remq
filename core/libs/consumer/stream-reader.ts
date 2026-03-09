@@ -1,10 +1,16 @@
 /**
  * StreamReader — Redis Stream operations (XREADGROUP, XACK, XTRIM MINID, XCLAIM) for Consumer.
  *
+ * Two-phase PEL recovery:
+ * - Startup: claimOrphanedOnStartup() transfers all orphaned PEL entries to current consumer (minIdleTime=0)
+ * - Read loop: XREADGROUP '0' drains own PEL before reading new messages
+ * - Ongoing: XCLAIM reclaims other consumers' idle messages after visibilityTimeoutMs
+ *
  * @module
  */
 import type { Message, RedisConnection } from '../../types/index.ts';
 
+import { debug } from '../../utils/logger.ts';
 /**
  * Handles Redis Stream operations: XREADGROUP, XACK, XTRIM (MINID), XCLAIM. Messages stay in PEL until ack().
  */
@@ -20,7 +26,7 @@ export class StreamReader {
    * Create a stream reader for a consumer group.
    * @param streamdb - Redis connection for streams
    * @param group - Consumer group name (e.g. "processor")
-   * @param consumerId - Stable ID for this consumer (e.g. hostname-pid)
+   * @param consumerId - Stable ID for this consumer (e.g. hostname)
    * @param readCount - Max entries per XREADGROUP (default 200)
    * @param blockMs - Block duration for XREADGROUP in ms (default 50)
    * @param visibilityTimeoutMs - Idle time after which PEL entries are reclaimed via XCLAIM (default 30000)
@@ -66,24 +72,85 @@ export class StreamReader {
   }
 
   /**
-   * Read new messages from a queue stream.
+   * Claim ALL pending PEL entries on startup, regardless of idle time.
+   *
+   * Called once per stream in consumer start() before the read loop begins.
+   * Transfers orphaned entries from previous consumer (pid rotation, crash)
+   * to the current consumer immediately — no waiting for visibilityTimeoutMs.
+   *
+   * The read loop then picks them up via XREADGROUP '0' on the first cycle.
+   * Safe to call when PEL is empty — returns early with no Redis writes.
+   */
+  async claimOrphanedOnStartup(streamKey: string): Promise<void> {
+    try {
+      const pending = await this.streamdb.xpending(
+        streamKey,
+        this.group,
+        '-',
+        '+',
+        this.readCount,
+      ) as [string, string, number, number][] | undefined;
+
+      if (!pending?.length) return;
+
+      const ids = pending.map((m) => m[0]);
+
+      await this.streamdb.xclaim(
+        streamKey,
+        this.group,
+        this.consumerId,
+        0, // minIdleTime=0 — claim everything immediately
+        ...ids,
+      );
+
+      debug(
+        `[remq] startup: claimed ${ids.length} orphaned PEL entries on ${streamKey}`,
+      );
+    } catch (err) {
+      // Non-fatal — orphaned entries will be claimed after visibilityTimeoutMs
+      debug('[remq] startup xclaim failed (non-fatal):', err);
+    }
+  }
+
+  /**
+   * Read messages from a queue stream.
    *
    * Flow:
-   * 1. XPENDING — get current PEL, reclaim any idle > visibilityTimeoutMs
-   * 2. XREADGROUP '>' — read new undelivered messages
-   * 3. Return messages WITHOUT ACKing — they stay in PEL until ack() is called
+   * 1. XREADGROUP '0' — drain OWN PEL first
+   *    Picks up entries claimed by claimOrphanedOnStartup() on restart,
+   *    and any in-flight entries that survived a crash.
+   *    Returns immediately if own PEL has entries — no new messages read.
+   * 2. XCLAIM — reclaim OTHER consumers' idle messages (ongoing cross-consumer recovery)
+   *    Only runs when own PEL is empty.
+   * 3. XREADGROUP '>' — read new undelivered messages
+   *    Only advances group cursor when own PEL is fully drained.
    *
-   * Messages remain in PEL until explicitly ACKed. If the process crashes,
-   * the next startup's claim check will reclaim and redeliver them.
+   * Messages remain in PEL until explicitly ACKed via ack().
    */
   async readQueueStream(queueName: string): Promise<Message[]> {
     const streamKey = `${queueName}-stream`;
 
     try {
-      // Step 1: Check PEL and reclaim stuck messages
+      // Step 1: Drain own PEL — recovers startup-claimed orphans and crash survivors
+      const ownPending = await this.streamdb.xreadgroup(
+        'GROUP',
+        this.group,
+        this.consumerId,
+        'COUNT',
+        this.readCount,
+        'STREAMS',
+        streamKey,
+        '0', // '0' = own unACKed PEL entries, not new messages
+      ) as [string, [string, string][]][] | null;
+
+      if (ownPending?.[0]?.[1]?.length) {
+        return this.#sanitize(ownPending, queueName);
+      }
+
+      // Step 2: Reclaim other consumers' stuck messages (ongoing)
       await this.#claimIdleMessages(streamKey);
 
-      // Step 2: Read new messages — do NOT ACK here
+      // Step 3: Read new messages — cursor advances only when PEL is empty
       const jobs = await this.streamdb.xreadgroup(
         'GROUP',
         this.group,
@@ -94,7 +161,7 @@ export class StreamReader {
         this.blockMs,
         'STREAMS',
         streamKey,
-        '>',
+        '>', // '>' = new undelivered messages only
       ) as [string, [string, string][]][] | null;
 
       if (!jobs?.[0]?.[1]?.length) return [];
@@ -216,6 +283,9 @@ export class StreamReader {
 
     return stream[0][1]
       .map(([messageId, fields]) => {
+        // Guard: null fields = tombstoned entry (deleted from stream but still in PEL)
+        // ACK will be handled by processor — just skip here
+        if (!fields) return null;
         try {
           // Fields are [key, value, key, value, ...] — find 'data' key
           const dataIndex = fields.indexOf('data');
