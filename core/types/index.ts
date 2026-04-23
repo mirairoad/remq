@@ -39,7 +39,7 @@ export interface EmitOptions {
   retryDelayMs?: number;
   /** Retry backoff strategy. Default 'fixed'. */
   retryBackoff?: 'fixed' | 'exponential';
-  /** Job priority. Higher = processed first. Default 0. */
+  /** Job priority. Higher number = processed first (lower ZADD score). Default 0. */
   priority?: number;
 }
 
@@ -72,7 +72,7 @@ export type JobContext<
   logger: (message: string | object) => void;
   /** Fire-and-forget emit. Returns jobId. */
   emit: EmitFunction;
-  /** Awaitable emit. Resolves when both state key and stream entry are written. */
+  /** Awaitable emit. Resolves when state key and queue entry are written. */
   emitAsync: EmitAsyncFunction;
   /** WebSocket context. Only available when remq is started with expose option. */
   socket: JobSocketContext;
@@ -122,7 +122,7 @@ export type EmitFunction = (
   options?: EmitOptions,
 ) => string;
 
-/** Awaitable emit. Resolves with jobId after state key and stream entry are written. */
+/** Awaitable emit. Resolves with jobId after state key and queue entry are written. */
 export type EmitAsyncFunction = (
   event: string,
   data?: unknown,
@@ -137,7 +137,7 @@ export interface JobSocketContext {
   update: (data: unknown, progress?: number) => void;
 }
 
-// ─── Job data (internal stream payload) ──────────────────────────────────────
+// ─── Job data (internal queue payload) ───────────────────────────────────────
 
 /** Single log entry attached to a job (in-memory until job state is persisted). */
 export interface JobLog {
@@ -161,8 +161,7 @@ export interface JobState<TData = unknown> {
 }
 
 /**
- * Full job payload — written to stream and state keys.
- * This is the shape of every message in Redis Streams.
+ * Full job payload — written to state keys and the sorted-set queue.
  */
 export interface JobData<TData = unknown> {
   id: string;
@@ -181,66 +180,53 @@ export interface JobData<TData = unknown> {
   errors: JobError[];
   timestamp: number;
   lastRun?: number;
-  messageId?: string;
 }
 
 // ─── Message (internal consumer shape) ───────────────────────────────────────
 
-/** Message as read from a Redis Stream — stream entry ID, stream key, and parsed job payload. */
+/** Message as claimed from the sorted-set queue. */
 export interface Message {
-  /** Redis Stream entry ID e.g. '1234567890123-0'. */
+  /** Job ID — stable across retries. */
   id: string;
-  /** Stream key e.g. 'default-stream'. */
-  streamKey: string;
+  /** Queue name e.g. 'default'. */
+  queue: string;
   /** Parsed job payload (JobData). */
   data: JobData;
 }
 
-/** Context passed to the low-level stream handler; provides the message and ack/nack. */
+/** Context passed to the low-level queue handler; provides the message and ack/nack. */
 export interface MessageContext {
   message: Message;
-  /** ACK the message — removes from PEL. Call only after successful processing. */
+  /** ACK — removes from processing set. Call after successful processing. */
   ack: () => Promise<void>;
-  /** NACK — ACK the original (removes from PEL); caller decides retry/DLQ. */
+  /** NACK — removes from processing set; caller handles retry/DLQ. */
   nack: (error: Error) => Promise<void>;
 }
 
 // ─── Consumer options (internal) ─────────────────────────────────────────────
 
-/** XREADGROUP tuning: how many entries to read and how long to block. */
-export interface ConsumerReadOptions {
-  /** Max messages per XREADGROUP call. Default 200. */
-  count?: number;
-  /** BLOCK timeout in ms. Default 50. */
-  blockMs?: number;
-}
-
-/** Options for the Consumer — streams, handler, and tuning. */
+/** Options for the Consumer. */
 export interface ConsumerOptions {
-  /** Stream keys to read from (e.g. ['default-stream']). */
-  streams: string[];
-  /** Redis connection used for streams. */
-  streamdb: RedisConnection;
+  /** Queue names to poll (e.g. ['default', 'payments']). */
+  queues: string[];
+  /** Redis connection. */
+  db: RedisConnection;
   /** Handler invoked for each message; must call ctx.ack() or ctx.nack(). */
   handler: (message: Message, ctx: MessageContext) => Promise<void>;
   /** Max concurrent message handlers. Default 1. */
   concurrency?: number;
-  /** Consumer group name. Default 'processor'. */
-  group?: string;
-  /** Stable consumer ID (e.g. hostname-pid). Auto-generated if omitted. */
-  consumerId?: string;
   /** Idle poll interval in ms when no messages. Default 3000. */
   pollIntervalMs?: number;
-  /** XREADGROUP count and block. */
-  read?: ConsumerReadOptions;
-  /** Idle ms after which PEL entries are reclaimed (XCLAIM). Default 30000. */
+  /** Max messages to claim per poll cycle. Default 200. */
+  claimCount?: number;
+  /** Idle ms after which processing jobs are reclaimed by the Reaper. Default 30000. */
   visibilityTimeoutMs?: number;
   /**
-   * Priority map for stream ordering. Lower number = read first.
-   * Streams not in the map are read last (Infinity priority).
-   * Example: { 'payments-stream': 1, 'sync-stream': 2 }
+   * Priority map for queue ordering. Lower number = polled first.
+   * Queues not in the map are polled last.
+   * Example: { payments: 1, sync: 2 }
    */
-  streamPriority?: Record<string, number>;
+  queuePriority?: Record<string, number>;
 }
 
 // ─── Processor options (internal) ────────────────────────────────────────────
@@ -253,8 +239,9 @@ export interface RetryConfig {
   shouldRetry?: (error: Error, attempts: number) => boolean;
 }
 
-/** Dead-letter queue: stream key and optional filter for which failures to send. */
+/** Dead-letter queue: queue name and optional filter for which failures to send. */
 export interface DlqConfig {
+  /** Queue name for dead-letter jobs (e.g. 'dlq'). */
   streamKey?: string;
   shouldSendToDLQ?: (
     message: Message,
@@ -272,46 +259,24 @@ export interface DebounceConfig {
 /** Options for the Processor — consumer config plus retry, DLQ, and state TTL. */
 export interface ProcessorOptions {
   consumer: ConsumerOptions;
-  streamdb: RedisConnection;
+  db: RedisConnection;
   retry?: RetryConfig;
   dlq?: DlqConfig;
   debounce?: number | DebounceConfig;
   jobStateTtlSeconds?: number;
   maxLogsPerJob?: number;
   pollIntervalMs?: number;
-  read?: ConsumerReadOptions;
-  readCount?: number;
+  claimCount?: number;
 }
 
 // ─── Remq public options ──────────────────────────────────────────────────────
 
-/** Redis connection options — used to auto-create a connection or streamdb. */
-export interface RedisConfig {
-  host?: string;
-  port?: number;
-  password?: string;
-  db?: number;
-  [key: string]: unknown;
-}
-
-/** Options for Remq.create() — db, optional streamdb/redis, ctx, concurrency, expose, processor. */
+/** Options for Remq.create(). */
 export interface JobManagerOptions<
   TApp extends Record<string, unknown> = Record<string, unknown>,
 > {
-  /** Primary Redis connection — state keys, locks, pause flags. */
+  /** Redis connection — state keys, queue sorted sets, locks, pause flags. */
   db: RedisConnection;
-  /**
-   * Dedicated Redis connection for streams.
-   * Prevents XREADGROUP BLOCK from stalling admin queries on db.
-   * If omitted and redis is provided, auto-creates on db+1.
-   * If neither provided, falls back to db (not recommended).
-   */
-  streamdb?: RedisConnection;
-  /**
-   * Redis connection config — used to auto-create streamdb on db+1.
-   * Ignored if streamdb is provided explicitly.
-   */
-  redis?: RedisConfig;
   /** App-level context injected into every handler as ctx.* */
   ctx?: TApp;
   /** Max concurrent jobs across all queues. Default 1. */
@@ -323,20 +288,19 @@ export interface JobManagerOptions<
     jobStateTtlSeconds?: number;
     /** Max log entries per job blob. Self-cleaning. */
     maxLogsPerJob?: number;
-    /** Poll interval in ms when stream is empty. Default 3000. */
+    /** Poll interval in ms when queue is empty. Default 3000. */
     pollIntervalMs?: number;
-    /** How long before a stuck processing job is reclaimed. Default 30000ms. */
+    /** How long before a stuck processing job is reclaimed by the Reaper. Default 30000ms. */
     visibilityTimeoutMs?: number;
-    read?: ConsumerReadOptions;
-    /** @deprecated use read.count */
-    readCount?: number;
+    /** Max messages to claim per poll cycle. Default 200. */
+    claimCount?: number;
     retry?: RetryConfig;
     dlq?: DlqConfig;
     /**
-     * Stream read priority. Lower number = higher priority.
-     * Example: { payments: 1, sync: 2 } — omit '-stream' suffix.
+     * Queue poll priority. Lower number = higher priority (polled first).
+     * Example: { payments: 1, sync: 2 }
      */
-    streamPriority?: Record<string, number>;
+    queuePriority?: Record<string, number>;
   };
 }
 
