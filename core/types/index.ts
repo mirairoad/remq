@@ -98,6 +98,8 @@ export type JobContext<
   emit: EmitFunction;
   /** Awaitable emit. Resolves when state key and queue entry are written. */
   emitAsync: EmitAsyncFunction;
+  /** Emit and wait for the job to complete. Rejects on failure or timeout. */
+  emitAndWait: EmitAndWaitFunction;
   /** WebSocket context. Only available when hound is started with expose option. */
   socket: JobSocketContext;
 };
@@ -120,6 +122,12 @@ export interface HandlerOptions {
   debounce?: number;
   /** Retry backoff strategy. */
   retryBackoff?: 'fixed' | 'exponential';
+  /**
+   * Max concurrent executions of this handler. Overrides the global Hound concurrency
+   * for this specific job type. Use for beefy jobs that should not saturate the worker pool.
+   * Example: { concurrency: 2 } — at most 2 instances run in parallel.
+   */
+  concurrency?: number;
 }
 
 /**
@@ -152,6 +160,41 @@ export type EmitAsyncFunction = (
   data?: unknown,
   options?: EmitOptions,
 ) => Promise<string>;
+
+/** Awaitable emit that resolves with jobId once the job completes, or rejects on failure/timeout. */
+export type EmitAndWaitFunction = (
+  event: string,
+  data?: unknown,
+  options?: EmitOptions & { timeoutMs?: number },
+) => Promise<string>;
+
+/** Options for hound.benchmark(). */
+export interface BenchmarkOptions {
+  /** Total number of jobs to run. */
+  totalJobs: number;
+  /** Simulated work delay per job in ms. Defaults to 0. */
+  simulatedWorkMs?: number;
+  /** Number of jobs running in parallel. Defaults to 10. */
+  concurrency?: number;
+  /** Per-job timeout in ms. Defaults to 30_000. */
+  timeoutMs?: number;
+}
+
+/** Result returned by hound.benchmark(). */
+export interface BenchmarkResult {
+  totalJobs: number;
+  durationMs: number;
+  /** Jobs per second. */
+  throughput: number;
+  latency: {
+    min: number;
+    max: number;
+    p50: number;
+    p95: number;
+    p99: number;
+    avg: number;
+  };
+}
 
 // ─── WebSocket ────────────────────────────────────────────────────────────────
 
@@ -307,6 +350,25 @@ export interface HoundOptions<
   concurrency?: number;
   /** WebSocket gateway port for real-time job updates. */
   expose?: number;
+  /**
+   * Pass `import.meta` from your plugin file so Hound can resolve `jobDirs` relative to it.
+   * Required when `jobDirs` is set.
+   */
+  importMeta?: { url: string };
+  /**
+   * Directories containing `*.job.ts` files to auto-register on `start()`.
+   * Resolved relative to `importMeta.url`. Also used by `deno task codegen`.
+   */
+  jobDirs?: string[];
+  /**
+   * Output directory for the generated HoundJobMap type file (codegen only).
+   */
+  outputDir?: string;
+  /**
+   * Optional Bearer token. When set, the HTTP gateway requires
+   * `Authorization: Bearer <token>` on all requests.
+   */
+  auth?: string;
   processor?: {
     /** State key TTL in seconds. Required for production — prevents unbounded key growth. */
     jobStateTtlSeconds?: number;

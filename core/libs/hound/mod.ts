@@ -8,9 +8,12 @@ import { Processor } from '../processor/processor.ts';
 import { DebounceManager } from '../processor/debounce-manager.ts';
 import { QueueStore } from '../consumer/queue-store.ts';
 import { Reaper } from '../consumer/reaper.ts';
-import { createWsGateway } from '../gateways/ws.gateway.ts';
+import { createGateway } from '../gateways/gateway.ts';
 import { debug } from '../../utils/logger.ts';
 import type {
+  BenchmarkOptions,
+  BenchmarkResult,
+  EmitAndWaitFunction,
   EmitAsyncFunction,
   EmitFunction,
   EmitOptions,
@@ -33,6 +36,9 @@ import {
 
 /** Re-exported option and handler types for Hound. */
 export type {
+  BenchmarkOptions,
+  BenchmarkResult,
+  EmitAndWaitFunction,
   EmitAsyncFunction,
   EmitFunction,
   EmitOptions,
@@ -59,9 +65,15 @@ export class Hound<
   };
   private readonly concurrency: number;
   private readonly processorOptions: HoundOptions<TApp>['processor'];
+  private readonly importMeta?: { url: string };
+  private readonly jobDirs?: string[];
+  // Monotonic counter assigned synchronously at emit time so rapid fire-and-forget
+  // emits within the same millisecond are enqueued in call order, not async-resolution order.
+  #emitSeq = 0;
 
   private handlers: Map<string, JobHandler<TApp, any>> = new Map();
   private handlerDebounce: Map<string, DebounceManager> = new Map();
+  private handlerSemaphores: Map<string, { limit: number; active: number }> = new Map();
   private pendingCronJobs: Map<
     string,
     {
@@ -77,8 +89,8 @@ export class Hound<
   private isStarted = false;
   private shutdownRegistered = false;
   private readonly expose?: number;
-  private wsServer?: ReturnType<typeof createWsGateway>;
-  private readonly broadcastSockets = new Set<WebSocket>();
+  private readonly auth?: string;
+  private server?: ReturnType<typeof createGateway>;
 
   readonly #jobFinishedListeners = new Set<
     (payload: {
@@ -88,9 +100,12 @@ export class Hound<
       error?: string;
     }) => void
   >();
-  #jobFinishedUnsubscribe?: () => void;
-  private readonly jobIdToSockets = new Map<string, Set<WebSocket>>();
-  private readonly socketToJobIds = new Map<WebSocket, Set<string>>();
+  readonly #jobWaiters = new Map<string, {
+    resolve: (jobId: string) => void;
+    reject: (err: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
+  #jobWaiterListenerActive = false;
 
   private readonly JOB_STATUS_MESSAGES = {
     processing: 'Job execution started',
@@ -110,9 +125,13 @@ export class Hound<
       ...(options.ctx || {} as TApp),
       emit: this.emit.bind(this),
       emitAsync: this.emitAsync.bind(this),
-    } as TApp & { emit: EmitFunction; emitAsync: EmitAsyncFunction };
+      emitAndWait: this.emitAndWait.bind(this),
+    } as TApp & { emit: EmitFunction; emitAsync: EmitAsyncFunction; emitAndWait: EmitAndWaitFunction };
 
     this.expose = options.expose;
+    this.auth = options.auth;
+    this.importMeta = options.importMeta;
+    this.jobDirs = options.jobDirs;
   }
 
   static create<TApp extends Record<string, unknown> = Record<string, unknown>>(
@@ -167,8 +186,23 @@ export class Hound<
     const queue = opts?.queue ?? 'default';
     const handlerKey = `${queue}:${event}`;
 
+    // Enforce unique event names — same event on a different queue is a config error.
+    for (const key of this.handlers.keys()) {
+      const colonIdx = key.indexOf(':');
+      if (key.slice(colonIdx + 1) === event && key !== handlerKey) {
+        throw new Error(
+          `[hound] Duplicate event name '${event}': already registered on queue '${key.slice(0, colonIdx)}'. ` +
+            `Event names must be unique across all queues.`,
+        );
+      }
+    }
+
     this.handlers.set(handlerKey, h as JobHandler<TApp, any>);
     this.queues.add(queue);
+
+    if (opts?.concurrency !== undefined && opts.concurrency > 0) {
+      this.handlerSemaphores.set(handlerKey, { limit: opts.concurrency, active: 0 });
+    }
 
     if (opts?.debounce !== undefined) {
       const debounceSeconds = Math.ceil(opts.debounce / 1000);
@@ -189,13 +223,22 @@ export class Hound<
 
   // ─── Emission ─────────────────────────────────────────────────────────────
 
+  /** Return the queue a handler was registered on for `event`, or undefined. */
+  #resolveQueue(event: string): string | undefined {
+    for (const key of this.handlers.keys()) {
+      const colonIdx = key.indexOf(':');
+      if (key.slice(colonIdx + 1) === event) return key.slice(0, colonIdx);
+    }
+    return undefined;
+  }
+
   #buildPayload(
     event: string,
     data?: unknown,
     options?: EmitOptions,
-  ): [string, string, string, string] {
+  ): [string, string, string, string, number] {
     const opts = options ?? {};
-    const queue = opts.queue ?? 'default';
+    const queue = opts.queue || this.#resolveQueue(event) || 'default';
     const payload = data ?? {};
 
     if (!event) throw new Error('event is required');
@@ -237,19 +280,20 @@ export class Hound<
     const stateKey = `queues:${queue}:${jobId}:${jobData.status}`;
     const dataJson = JSON.stringify(jobData);
 
-    // Score: delayUntil adjusted by priority (higher priority = lower score = runs first)
-    const score = delayUntilMs - (opts.priority ?? 0);
+    // Score: delayUntil adjusted by priority, plus a sub-millisecond sequence tiebreaker
+    // assigned synchronously so rapid emit() calls preserve call order regardless of
+    // async-resolution timing. Max drift: 1ms per 10,000 jobs.
+    const seq = this.#emitSeq++;
+    const score = delayUntilMs - (opts.priority ?? 0) + (seq % 10_000) * 0.0001;
 
-    return [jobId, queue, stateKey, dataJson];
+    return [jobId, queue, stateKey, dataJson, score];
   }
 
   emit(event: string, data?: unknown, options?: EmitOptions): string {
-    const [jobId, queue, stateKey, dataJson] = this.#buildPayload(event, data, options);
-    const opts = options ?? {};
-    const delayUntilMs = this.#scoreFromOptions(opts, dataJson);
+    const [jobId, queue, stateKey, dataJson, score] = this.#buildPayload(event, data, options);
 
     this.#setJobState(stateKey, dataJson)
-      .then(() => this.queueStore.enqueue(queue, jobId, delayUntilMs))
+      .then(() => this.queueStore.enqueue(queue, jobId, score))
       .catch((err: unknown) => {
         console.error(` emit failed for ${event}:`, err);
       });
@@ -258,8 +302,7 @@ export class Hound<
   }
 
   async emitAsync(event: string, data?: unknown, options?: EmitOptions): Promise<string> {
-    const [jobId, queue, stateKey, dataJson] = this.#buildPayload(event, data, options);
-    const score = this.#scoreFromOptions(options ?? {}, dataJson);
+    const [jobId, queue, stateKey, dataJson, score] = this.#buildPayload(event, data, options);
 
     await this.#setJobState(stateKey, dataJson);
     await this.queueStore.enqueue(queue, jobId, score);
@@ -267,10 +310,109 @@ export class Hound<
     return jobId;
   }
 
-  /** Score for ZADD: delayUntil adjusted by priority. */
-  #scoreFromOptions(opts: EmitOptions, dataJson: string): number {
-    const parsed = JSON.parse(dataJson) as JobData;
-    return parsed.delayUntil - (opts.priority ?? 0);
+  #ensureJobWaiterListener(): void {
+    if (this.#jobWaiterListenerActive) return;
+    this.#jobWaiterListenerActive = true;
+    this[SUBSCRIBE_JOB_FINISHED](({ jobId, status, error }) => {
+      const entry = this.#jobWaiters.get(jobId);
+      if (!entry) return;
+      this.#jobWaiters.delete(jobId);
+      clearTimeout(entry.timer);
+      if (status === 'failed') entry.reject(new Error(error ?? 'Job failed'));
+      else entry.resolve(jobId);
+    });
+  }
+
+  async emitAndWait(
+    event: string,
+    data?: unknown,
+    options?: EmitOptions & { timeoutMs?: number },
+  ): Promise<string> {
+    this.#ensureJobWaiterListener();
+    const { timeoutMs = 30_000, ...emitOpts } = options ?? {};
+    const jobId = emitOpts.id ?? genJobIdSync(event, data ?? {});
+
+    const waitPromise = new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.#jobWaiters.delete(jobId);
+        reject(new Error(`Job ${jobId} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      this.#jobWaiters.set(jobId, { resolve, reject, timer });
+    });
+
+    this.emit(event, data, { ...emitOpts, id: jobId });
+    return waitPromise;
+  }
+
+  async benchmark(config: BenchmarkOptions): Promise<BenchmarkResult> {
+    const { totalJobs, simulatedWorkMs = 0, concurrency = 10, timeoutMs = 30_000 } = config;
+    const BENCH_EVENT = '__hound.benchmark__';
+    const BENCH_QUEUE = 'default';
+    const handlerKey = `${BENCH_QUEUE}:${BENCH_EVENT}`;
+
+    const needsRestart = !this.queues.has(BENCH_QUEUE);
+    this.on(BENCH_EVENT, async () => {
+      if (simulatedWorkMs > 0) await new Promise<void>((r) => setTimeout(r, simulatedWorkMs));
+    });
+    if (needsRestart) {
+      this.isStarted = false;
+      await this.start();
+    }
+
+    this.#ensureJobWaiterListener();
+
+    const latencies: number[] = [];
+    const startTime = performance.now();
+    let jobIndex = 0;
+
+    await Promise.all(
+      Array.from({ length: concurrency }, async () => {
+        while (true) {
+          const i = jobIndex++;
+          if (i >= totalJobs) break;
+          const id = `__bench__${i}__${crypto.randomUUID()}`;
+          const t = performance.now();
+          await this.emitAndWait(BENCH_EVENT, { simulatedWorkMs }, { queue: BENCH_QUEUE, id, timeoutMs });
+          latencies.push(performance.now() - t);
+        }
+      }),
+    );
+
+    const durationMs = performance.now() - startTime;
+    this.handlers.delete(handlerKey);
+
+    const sorted = [...latencies].sort((a, b) => a - b);
+    const n = sorted.length;
+    const result: BenchmarkResult = {
+      totalJobs: n,
+      durationMs,
+      throughput: n / (durationMs / 1000),
+      latency: {
+        min: sorted[0] ?? 0,
+        max: sorted[n - 1] ?? 0,
+        p50: sorted[Math.floor(n * 0.5)] ?? 0,
+        p95: sorted[Math.floor(n * 0.95)] ?? 0,
+        p99: sorted[Math.floor(n * 0.99)] ?? 0,
+        avg: latencies.reduce((s, l) => s + l, 0) / n,
+      },
+    };
+
+    console.log(`
+Benchmark Results
+${'─'.repeat(40)}
+  Total:      ${result.totalJobs} jobs
+  Duration:   ${(result.durationMs / 1000).toFixed(2)}s
+  Throughput: ${result.throughput.toFixed(2)} jobs/s
+  Latency:
+    min: ${result.latency.min.toFixed(2)}ms
+    p50: ${result.latency.p50.toFixed(2)}ms
+    p95: ${result.latency.p95.toFixed(2)}ms
+    p99: ${result.latency.p99.toFixed(2)}ms
+    max: ${result.latency.max.toFixed(2)}ms
+    avg: ${result.latency.avg.toFixed(2)}ms
+`);
+
+    return result;
   }
 
   /** Enqueue an existing job payload directly (used by HoundManagement.promoteJob). */
@@ -344,10 +486,59 @@ export class Hound<
     jobEntry.logs.splice(0, jobEntry.logs.length - max);
   }
 
+  // ─── Auto-discovery ──────────────────────────────────────────────────────
+
+  async #autoRegisterJobs(): Promise<void> {
+    if (!this.importMeta || !this.jobDirs?.length) return;
+    const base = new URL('.', this.importMeta.url);
+
+    for (const dir of this.jobDirs) {
+      const dirPath = new URL(dir.endsWith('/') ? dir : dir + '/', base).pathname;
+      try {
+        for await (const entry of this.#walkJobFiles(dirPath)) {
+          try {
+            const mod = await import(`file://${entry}`);
+            for (const value of Object.values(mod)) {
+              if (this.#isJobDefinition(value)) {
+                this.on(value as JobDefinition<TApp, unknown>);
+              }
+            }
+          } catch (err) {
+            console.error(`[hound] Auto-register failed for ${entry}:`, err);
+          }
+        }
+      } catch (err) {
+        if (!(err instanceof Deno.errors.NotFound)) throw err;
+        console.warn(`[hound] jobDir not found, skipping: ${dirPath}`);
+      }
+    }
+  }
+
+  async *#walkJobFiles(dir: string): AsyncGenerator<string> {
+    for await (const entry of Deno.readDir(dir)) {
+      const path = `${dir}/${entry.name}`;
+      if (entry.isDirectory) yield* this.#walkJobFiles(path);
+      else if (entry.isFile && entry.name.endsWith('.job.ts')) yield path;
+    }
+  }
+
+  #isJobDefinition(v: unknown): boolean {
+    return (
+      typeof v === 'object' &&
+      v !== null &&
+      'event' in v &&
+      'handler' in v &&
+      typeof (v as Record<string, unknown>).event === 'string' &&
+      typeof (v as Record<string, unknown>).handler === 'function'
+    );
+  }
+
   // ─── Start ────────────────────────────────────────────────────────────────
 
-  async start(): Promise<void> {
-    if (this.isStarted) return;
+  async start(): Promise<this> {
+    if (this.isStarted) return this;
+
+    await this.#autoRegisterJobs();
 
     if (this.processor) {
       this.processor.stop();
@@ -407,66 +598,29 @@ export class Hound<
     this.#setupGracefulShutdown();
 
     if (this.expose != null) {
-      this.wsServer = createWsGateway({
-        port: this.expose,
-        hostname: '0.0.0.0',
-        hound: this,
-        onConnection: (ws, req) => this.#handleWsConnection(ws, req),
-      });
-      this.#jobFinishedUnsubscribe = this[SUBSCRIBE_JOB_FINISHED]((payload) => {
-        const sockets = this.#getSocketsForJob(payload.jobId);
-        if (!sockets.size) return;
-        const payloadStr = JSON.stringify({
-          type: 'job_finished',
-          jobId: payload.jobId,
-          queue: payload.queue,
-          status: payload.status,
-          error: payload.error,
-        });
-        for (const socket of sockets) {
-          try {
-            if (socket.readyState === WebSocket.OPEN) socket.send(payloadStr);
-          } catch (err) {
-            console.error(' WS send job_finished error:', err);
-          }
-        }
-        const socketsThatHadJob = this.jobIdToSockets.get(payload.jobId);
-        this.jobIdToSockets.delete(payload.jobId);
-        if (socketsThatHadJob) {
-          for (const ws of socketsThatHadJob) {
-            this.socketToJobIds.get(ws)?.delete(payload.jobId);
-          }
-        }
-      });
-      debug(`Hound WS gateway listening on 0.0.0.0:${this.expose}`);
+      this.server = createGateway({ port: this.expose, hound: this, auth: this.auth });
+      debug(`Hound HTTP gateway listening on 0.0.0.0:${this.expose}`);
     }
 
     const queueList = Array.from(this.queues).join(', ');
     debug(`Hound started with ${this.queues.size} queue(s) [${queueList}] and concurrency ${this.concurrency}`);
+    return this;
   }
 
   // ─── Stop / drain ─────────────────────────────────────────────────────────
 
   async stop(): Promise<void> {
-    this.#jobFinishedUnsubscribe?.();
-    this.#jobFinishedUnsubscribe = undefined;
-    this.broadcastSockets.clear();
-    this.jobIdToSockets.clear();
-    this.socketToJobIds.clear();
-
     this.reaper?.stop();
     this.reaper = undefined;
 
-    // Stop the consumer poll loop before closing the WS server
     this.processor?.stop();
 
-    if (this.wsServer) {
-      // Race against a 2s timeout — open WS connections can stall graceful shutdown
+    if (this.server) {
       await Promise.race([
-        this.wsServer.shutdown(),
+        this.server.shutdown(),
         new Promise<void>((resolve) => setTimeout(resolve, 2000)),
       ]);
-      this.wsServer = undefined;
+      this.server = undefined;
     }
 
     this.isStarted = false;
@@ -542,19 +696,36 @@ export class Hound<
       }
 
       const debounceManager = this.handlerDebounce.get(handlerKey);
-      if (debounceManager) {
-        if (!debounceManager.shouldProcess(msg as any)) {
-          await ctx.ack();
-          return;
+
+      // Per-handler concurrency — requeue if slot is full so the consumer slot is freed.
+      // Preserve original score (delayUntil - priority) + delay to maintain emission order.
+      const sem = this.handlerSemaphores.get(handlerKey);
+      if (sem && sem.active >= sem.limit) {
+        const requeueDelay = this.processorOptions?.pollIntervalMs ?? 3000;
+        const originalScore = (jobData.delayUntil ?? Date.now()) - (jobData.priority ?? 0);
+        await ctx.ack();
+        await this.queueStore.enqueue(queueName, jobId, originalScore + requeueDelay);
+        return;
+      }
+
+      if (sem) sem.active++;
+      try {
+        if (debounceManager) {
+          if (!debounceManager.shouldProcess(msg as any)) {
+            await ctx.ack();
+            return;
+          }
+          const originalHandler = handler;
+          const wrappedHandler = async (c: any) => {
+            await originalHandler(c);
+            debounceManager.markProcessed(msg as any);
+          };
+          await this.#processJob(jobData, jobId, queueName, wrappedHandler, ctx);
+        } else {
+          await this.#processJob(jobData, jobId, queueName, handler, ctx);
         }
-        const originalHandler = handler;
-        const wrappedHandler = async (c: any) => {
-          await originalHandler(c);
-          debounceManager.markProcessed(msg as any);
-        };
-        await this.#processJob(jobData, jobId, queueName, wrappedHandler, ctx);
-      } else {
-        await this.#processJob(jobData, jobId, queueName, handler, ctx);
+      } finally {
+        if (sem) sem.active--;
       }
     };
 
@@ -622,6 +793,7 @@ export class Hound<
         logger: jobEntry.logger,
         emit: this.emit.bind(this),
         emitAsync: this.emitAsync.bind(this),
+        emitAndWait: this.emitAndWait.bind(this),
         socket: this.#createSocketContext(jobId, jobEntry.state.name!, jobEntry.state.queue!),
       };
 
@@ -730,97 +902,14 @@ export class Hound<
     await this.queueStore.enqueue(queueName, jobId, score);
   }
 
-  // ─── WebSocket ────────────────────────────────────────────────────────────
+  // ─── Socket context (stub) ────────────────────────────────────────────────
 
-  #createSocketContext(id: string, event: string, queue: string): JobSocketContext {
-    if (this.expose == null) {
-      return {
-        update: () => {
-          throw new Error('ctx.socket.update() requires Hound to be started with expose option.');
-        },
-      };
-    }
+  #createSocketContext(_id: string, _event: string, _queue: string): JobSocketContext {
     return {
-      update: (data: unknown, progress?: number) =>
-        this.#sendJobUpdate({ id, event, queue, data, progress: progress ?? 0 }),
+      update: () => {
+        throw new Error('ctx.socket.update() is not supported — use emitAndWait or poll job state.');
+      },
     };
-  }
-
-  #getSocketsForJob(jobId: string): Set<WebSocket> {
-    const out = new Set<WebSocket>(this.jobIdToSockets.get(jobId) ?? []);
-    for (const ws of this.broadcastSockets) {
-      if (ws.readyState === WebSocket.OPEN) out.add(ws);
-    }
-    return out;
-  }
-
-  #sendJobUpdate({ id, event, queue, data, progress }: {
-    id: string; event: string; queue: string; data: unknown; progress: number;
-  }): void {
-    const sockets = this.#getSocketsForJob(id);
-    if (!sockets.size) return;
-    const payloadStr = JSON.stringify({ type: 'job_update', id, event, queue, data, progress });
-    for (const socket of sockets) {
-      try {
-        if (socket.readyState === WebSocket.OPEN) socket.send(payloadStr);
-      } catch (err) {
-        console.error(' WS send job_update error:', err);
-      }
-    }
-  }
-
-  #handleWsConnection(ws: WebSocket, req: Request): void {
-    const wantBroadcast = req.headers.get('x-get-broadcast')?.toLowerCase() === 'true';
-    if (wantBroadcast) this.broadcastSockets.add(ws);
-
-    const addJobForSocket = (jobId: string) => {
-      if (!this.socketToJobIds.has(ws)) this.socketToJobIds.set(ws, new Set());
-      this.socketToJobIds.get(ws)!.add(jobId);
-      if (!this.jobIdToSockets.has(jobId)) this.jobIdToSockets.set(jobId, new Set());
-      this.jobIdToSockets.get(jobId)!.add(ws);
-    };
-
-    const removeSocket = () => {
-      this.broadcastSockets.delete(ws);
-      const jobIds = this.socketToJobIds.get(ws);
-      if (jobIds) {
-        for (const jobId of jobIds) {
-          this.jobIdToSockets.get(jobId)?.delete(ws);
-          if (this.jobIdToSockets.get(jobId)?.size === 0) {
-            this.jobIdToSockets.delete(jobId);
-          }
-        }
-        this.socketToJobIds.delete(ws);
-      }
-    };
-
-    ws.addEventListener('close', removeSocket);
-    ws.addEventListener('message', (event) => {
-      try {
-        const raw = typeof event.data === 'string'
-          ? event.data
-          : new TextDecoder().decode(event.data as ArrayBuffer);
-        const msg = JSON.parse(raw) as {
-          type?: string;
-          event?: string;
-          queue?: string;
-          data?: unknown;
-          options?: Record<string, unknown>;
-        };
-        if (typeof msg?.event === 'string') {
-          const jobId = this.emit(msg.event, msg.data, {
-            queue: msg.queue,
-            ...msg.options,
-          } as EmitOptions);
-          addJobForSocket(jobId);
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'queued', jobId }));
-          }
-        }
-      } catch (_) {
-        // ignore parse errors
-      }
-    });
   }
 
   // ─── Graceful shutdown ────────────────────────────────────────────────────

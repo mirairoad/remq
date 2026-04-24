@@ -1,0 +1,255 @@
+/**
+ * Hound codegen — scans directories for defineJob exports and generates a
+ * typed HoundJobMap interface so emit/emitAsync/emitAndWait are type-safe.
+ *
+ * @module
+ */
+
+export interface CodegenOptions {
+  /** Directories to scan for defineJob exports (relative to baseDir or absolute). */
+  jobDirs: string[];
+  /** Where to write the generated type file (relative to baseDir or absolute). */
+  outputDir: string;
+  /** Output filename. Default: 'hound-types.ts' */
+  outputFile?: string;
+  /** Import specifier for @hushkey/remq types. Default: 'jsr:@hushkey/remq' */
+  coreImport?: string;
+}
+
+export interface ClientgenOptions {
+  /** Where to write the generated client file (relative to baseDir or absolute). */
+  outputDir: string;
+  /** Output filename. Default: 'hound-client.ts' */
+  outputFile?: string;
+  /** Import path for HoundJobMap, relative to outputDir. Default: './hound-types.ts' */
+  typesImport?: string;
+  /** Import specifier for @hushkey/remq types. Default: 'jsr:@hushkey/remq' */
+  coreImport?: string;
+}
+
+interface JobEntry {
+  exportName: string;
+  eventName: string;
+  filePath: string;
+}
+
+// Matches: export const myJob = defineJob<...>('event-name', ...)
+// Captures: [1] export name, [2] event name
+// [^(]* handles nested generics like defineJob<Record<string, unknown>, Payload>
+const DEFINE_JOB_RE =
+  /export\s+const\s+(\w+)\s*=\s*defineJob[^(]*\(\s*['"`]([^'"`]+)['"`]/g;
+
+async function* walkJobFiles(dir: string): AsyncGenerator<string> {
+  for await (const entry of Deno.readDir(dir)) {
+    const path = `${dir}/${entry.name}`;
+    if (entry.isDirectory) yield* walkJobFiles(path);
+    else if (entry.isFile && entry.name.endsWith('.job.ts')) yield path;
+  }
+}
+
+async function scanFile(
+  filePath: string,
+): Promise<{ exportName: string; eventName: string }[]> {
+  const source = await Deno.readTextFile(filePath);
+  const entries: { exportName: string; eventName: string }[] = [];
+  DEFINE_JOB_RE.lastIndex = 0;
+  for (const match of source.matchAll(DEFINE_JOB_RE)) {
+    entries.push({ exportName: match[1], eventName: match[2] });
+  }
+  return entries;
+}
+
+function resolve(base: string, path: string): string {
+  if (path.startsWith('/')) return path;
+  const baseUrl = base.endsWith('/') ? `file://${base}` : `file://${base}/`;
+  return new URL(path, baseUrl).pathname;
+}
+
+function relative(from: string, to: string): string {
+  const fromParts = from.split('/').filter(Boolean);
+  const toParts = to.split('/').filter(Boolean);
+  let common = 0;
+  while (
+    common < fromParts.length &&
+    common < toParts.length &&
+    fromParts[common] === toParts[common]
+  ) {
+    common++;
+  }
+  const up = fromParts.length - common;
+  const rel = [
+    ...Array(up).fill('..'),
+    ...toParts.slice(common),
+  ].join('/');
+  return rel || '.';
+}
+
+/**
+ * Scan `jobDirs` for `defineJob` exports and write a typed `HoundJobMap`
+ * interface to `outputDir/outputFile`.
+ *
+ * @param options - Codegen configuration
+ * @param baseDir - Base directory to resolve relative paths from. Defaults to Deno.cwd().
+ *
+ * @example
+ * // examples/plugins/codegen.ts
+ * import { generateTypes } from '@core/libs/codegen/mod.ts';
+ * const here = new URL('.', import.meta.url).pathname;
+ * await generateTypes({ jobDirs: ['../_scheduled', '../_tasks'], outputDir: '../types' }, here);
+ */
+export async function generateTypes(
+  options: CodegenOptions,
+  baseDir?: string,
+): Promise<void> {
+  const base = baseDir ?? Deno.cwd();
+  const coreImport = options.coreImport ?? 'jsr:@hushkey/remq';
+  const outputFile = options.outputFile ?? 'hound-types.ts';
+
+  const resolvedJobDirs = options.jobDirs.map((d) => resolve(base, d));
+  const resolvedOutputDir = resolve(base, options.outputDir);
+  const outputPath = `${resolvedOutputDir}/${outputFile}`;
+
+  const jobs: JobEntry[] = [];
+
+  for (const dir of resolvedJobDirs) {
+    try {
+      for await (const filePath of walkJobFiles(dir)) {
+        const entries = await scanFile(filePath);
+        for (const { exportName, eventName } of entries) {
+          jobs.push({ exportName, eventName, filePath });
+        }
+      }
+    } catch (err) {
+      if (err instanceof Deno.errors.NotFound) {
+        console.warn(`[hound codegen] Directory not found, skipping: ${dir}`);
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  if (jobs.length === 0) {
+    console.warn('[hound codegen] No defineJob exports found in:', resolvedJobDirs);
+    return;
+  }
+
+  const imports = jobs
+    .map(({ exportName, filePath }) => {
+      const rel = relative(resolvedOutputDir, filePath).replace(/\\/g, '/');
+      const importPath = rel.startsWith('.') ? rel : `./${rel}`;
+      return `import type { ${exportName} } from '${importPath}';`;
+    })
+    .join('\n');
+
+  const mapEntries = jobs
+    .map(({ exportName, eventName }) => `  '${eventName}': _Data<typeof ${exportName}>;`)
+    .join('\n');
+
+  const content = `// auto-generated by hound — do not edit
+// regenerate: deno task codegen
+
+${imports}
+import type { JobDefinition } from '${coreImport}';
+
+type _Data<T> = T extends JobDefinition<any, infer D> ? D : never;
+
+/** Typed map of event name → payload. Generated from defineJob exports. */
+export interface HoundJobMap {
+${mapEntries}
+}
+`;
+
+  await Deno.mkdir(resolvedOutputDir, { recursive: true });
+  await Deno.writeTextFile(outputPath, content);
+
+  console.log(
+    `[hound codegen] ${jobs.length} job(s) → ${outputPath}`,
+  );
+  for (const { eventName } of jobs) {
+    console.log(`  • '${eventName}'`);
+  }
+}
+
+/**
+ * Generate a typed `HoundClient` class that hits the HTTP gateway.
+ * The client is fully portable — no Deno or hound runtime dependency.
+ *
+ * @param options - Client codegen configuration
+ * @param baseDir - Base directory to resolve relative paths from. Defaults to Deno.cwd().
+ *
+ * @example
+ * await generateClient({ outputDir: '../gen', coreImport: '@core/mod.ts' }, here);
+ */
+export async function generateClient(
+  options: ClientgenOptions,
+  baseDir?: string,
+): Promise<void> {
+  const base = baseDir ?? Deno.cwd();
+  const coreImport = options.coreImport ?? 'jsr:@hushkey/remq';
+  const outputFile = options.outputFile ?? 'hound-client.ts';
+  const typesImport = options.typesImport ?? './hound-types.ts';
+
+  const resolvedOutputDir = resolve(base, options.outputDir);
+  const outputPath = `${resolvedOutputDir}/${outputFile}`;
+
+  const content = `// auto-generated by hound — do not edit
+// regenerate: deno task codegen
+
+import type { HoundJobMap } from '${typesImport}';
+import type { EmitOptions } from '${coreImport}';
+
+type BoundEmitOptions = Omit<EmitOptions, 'queue'>;
+
+type EmitBatchJob = {
+  [K in keyof HoundJobMap]: { event: K; data: HoundJobMap[K]; options?: BoundEmitOptions };
+}[keyof HoundJobMap];
+
+export class HoundClient {
+  #url: string;
+  #headers: Record<string, string>;
+
+  constructor(url: string, options?: { auth?: string; headers?: Record<string, string> }) {
+    this.#url = url.replace(/\\/$/, '');
+    this.#headers = { 'Content-Type': 'application/json', ...options?.headers };
+    if (options?.auth) this.#headers['Authorization'] = \`Bearer \${options.auth}\`;
+  }
+
+  async emit<K extends keyof HoundJobMap>(
+    event: K,
+    data: HoundJobMap[K],
+    options?: BoundEmitOptions,
+  ): Promise<string> {
+    const res = await fetch(\`\${this.#url}/emit\`, {
+      method: 'POST',
+      headers: this.#headers,
+      body: JSON.stringify({ event, data, options }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(\`[hound-client] emit failed: \${(err as { error?: string }).error ?? res.statusText}\`);
+    }
+    const { jobId } = await res.json() as { jobId: string };
+    return jobId;
+  }
+
+  async emitBatch(jobs: EmitBatchJob[]): Promise<string[]> {
+    const res = await fetch(\`\${this.#url}/emit/batch\`, {
+      method: 'POST',
+      headers: this.#headers,
+      body: JSON.stringify(jobs),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(\`[hound-client] emitBatch failed: \${(err as { error?: string }).error ?? res.statusText}\`);
+    }
+    const { jobIds } = await res.json() as { jobIds: string[] };
+    return jobIds;
+  }
+}
+`;
+
+  await Deno.mkdir(resolvedOutputDir, { recursive: true });
+  await Deno.writeTextFile(outputPath, content);
+
+  console.log(`[hound codegen] client → ${outputPath}`);
+}

@@ -1,139 +1,94 @@
-# RemqAdmin
+# HoundManagement
 
-Client for queue administration: list jobs, retry, cancel, pause queues. Use from admin UIs or external clients.
+Queue and job administration. List jobs, inspect state, pause/resume queues,
+promote or delete jobs, and subscribe to completion events.
 
-## Features
+## Setup
 
-- **Get Job by ID** - Retrieve a specific job
-- **List Jobs** - List jobs with filtering (queue, status, pagination)
-- **Delete Job** - Remove a job from the system
-- **Get Queue Stats** - Get statistics for a queue (counts by status)
-- **Get Queues** - List all queues
-- **Retry Job** - Retry a failed job
-- **Cancel Job** - Cancel a waiting/delayed job
-- **Promote Job** - Promote a delayed or waiting job to run now (manual "run now")
+```ts
+import { Hound, HoundManagement } from '@hushkey/remq';
 
-## Usage
+const hound = Hound.create({ db });
+const management = new HoundManagement({ db, hound });
+```
 
-### Basic Setup
+`hound` is optional — only required for `management.events` and `management.api.jobs.promote`.
 
-```typescript
-import { RemqAdmin } from '@core/mod.ts';
-import { Redis } from 'ioredis';
+## Jobs API
 
-const db = new Redis({
-  port: 6379,
-  host: 'localhost',
-  db: 1,
+```ts
+// List all jobs (most recent state per jobId)
+const jobs = await management.api.jobs.find();
+
+// Get single job by {queue}:{jobId}
+const job = await management.api.jobs.get('default:job-id-123');
+
+// Delete a job (all state keys)
+await management.api.jobs.delete('default:job-id-123');
+
+// Promote — fire immediately (moves score to now)
+await management.api.jobs.promote('default:job-id-123');
+
+// Pause — delay until Number.MAX_SAFE_INTEGER
+await management.api.jobs.pause('default:job-id-123');
+```
+
+## Queues API
+
+```ts
+// List all queues with pause state and length
+const queues = await management.api.queues.find();
+
+await management.api.queues.pause('payments');
+await management.api.queues.resume('payments');
+
+// Flush all jobs and sorted sets for a queue
+await management.api.queues.reset('payments');
+
+// Check if queue is running
+const active = await management.api.queues.running('payments'); // true | false
+```
+
+## Events
+
+Requires a `Hound` instance to be passed to the constructor.
+
+```ts
+// All terminal events
+const unsub = management.events.job.finished((p) => {
+  console.log(p.jobId, p.status, p.error);
 });
 
-const admin = new RemqAdmin(db);
+// Filtered
+management.events.job.completed((p) => notifyClient(p.jobId));
+management.events.job.failed((p) => alertOncall(p.error));
 
-// Optional: pass Remq to enable onJobFinished()
-// const admin = new RemqAdmin(db, remq);
-```
-
-### Constructor
-
-- `new RemqAdmin(db: RedisConnection, remq?: Remq)` — `remq` is optional. When provided, `admin.onJobFinished(cb)` and `admin.retryJob()` use Remq's emit path.
-
-### Get Job by ID
-
-```typescript
-const job = await admin.getJob('job-id-123', 'default');
-
-if (job) {
-  console.log('Job status:', job.status);
-  console.log('Job data:', job.state.data);
-  console.log('Job logs:', job.logs);
-}
-```
-
-### List Jobs
-
-```typescript
-const jobs = await admin.listJobs({
-  queue: 'default',
-  limit: 50,
-  offset: 0,
-});
-
-const failedJobs = await admin.listJobs({
-  queue: 'default',
-  status: 'failed',
-  limit: 20,
-});
-```
-
-### Delete Job
-
-```typescript
-await admin.deleteJob('job-id-123', 'default');
-```
-
-### Get Queue Statistics
-
-```typescript
-const stats = await admin.stats('default');
-console.log('Total:', stats.total, 'Failed:', stats.failed);
-```
-
-### Get All Queues
-
-```typescript
-const queues = await admin.queues();
-const queuesInfo = await admin.queuesInfo();
-```
-
-### Retry / Cancel / Promote
-
-```typescript
-const retried = await admin.retryJob('job-id-123', 'default');
-const cancelled = await admin.cancelJob('job-id-123', 'default');
-
-// Promote a delayed or waiting job to run now (requires Remq — uses enqueueJobToStream)
-const promoted = await admin.promoteJob('job-id-123', 'default');
-if (promoted) {
-  console.log('Job promoted, processor will pick it up immediately');
-}
-```
-
-### Pause / Resume
-
-```typescript
-await admin.pause('default'); // or admin.pause() to pause all queues
-await admin.resume('default'); // or admin.resume() to resume all queues
-const isPaused = await admin.isPaused('default');
-```
-
-### Job finished (requires Remq)
-
-When RemqAdmin is constructed with a Remq instance, you can subscribe to job completion:
-
-```typescript
-const admin = new RemqAdmin(db, remq);
-const unsubscribe = admin.onJobFinished((payload) => {
-  console.log('Job finished:', payload.jobId, payload.status);
-});
-// later: unsubscribe();
-```
-
-## Integration with Remq
-
-Use `RemqAdmin` alongside Remq for admin or external clients:
-
-```typescript
-import { Remq, RemqAdmin } from '@core/mod.ts';
-
-const remq = Remq.create({ db, streamdb, ctx: {}, concurrency: 4 });
-const admin = new RemqAdmin(db);
-
-// e.g. in HTTP handlers
-const jobs = await admin.listJobs({ queue: 'default', limit: 50 });
-const job = await admin.getJob(id, queue);
-await admin.deleteJob(id, queue);
+// Unsubscribe
+unsub();
 ```
 
 ## Types
 
-Exported from `@core/mod.ts`: `Job`, `Job` (alias of `Job`), `ListOptions`, `QueueStats`, `QueueInfo`.
+```ts
+interface JobRecord {
+  id: string;
+  queue: string;
+  status: 'waiting' | 'delayed' | 'processing' | 'completed' | 'failed';
+  name: string;
+  data: unknown;
+  retryCount: number;
+  retriedAttempts: number;
+  priority: number;
+  delayUntil: number;
+  logs: { message: string; timestamp: number }[];
+  errors: { message: string; stack?: string; timestamp: number }[];
+  timestamp: number;
+  lastRun?: number;
+}
+
+interface QueueRecord {
+  name: string;
+  paused: boolean;
+  length: number;
+}
+```

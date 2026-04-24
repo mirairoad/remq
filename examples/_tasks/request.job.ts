@@ -8,7 +8,7 @@ interface OnRequestData {
 export const userReadJob = defineJob<Record<string, unknown>, OnRequestData>(
   'user.read',
   async (ctx) => {
-    console.log(ctx.data);
+    console.log(ctx.id);
   },
-  { queue: 'tasks' },
+  { queue: 'tasks', concurrency: 1 },
 );

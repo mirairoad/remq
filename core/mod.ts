@@ -4,6 +4,8 @@
  * @module
  */
 import { HandlerOptions, JobDefinition, JobHandler } from './types/index.ts';
+import type { EmitOptions } from './types/index.ts';
+import type { Hound } from './libs/hound/mod.ts';
 
 /**
  * Type-safe job definition factory. Use instead of hound.on() directly when you want ctx.data typed.
@@ -20,7 +22,7 @@ import { HandlerOptions, JobDefinition, JobHandler } from './types/index.ts';
  * hound.on(syncJob);
  */
 export function defineJob<
-  TApp extends Record<string, unknown> = Record<string, unknown>,
+  TApp extends Record<string, any> = Record<string, any>,
   TData = unknown,
 >(
   event: string,
@@ -34,3 +36,44 @@ export { Hound } from './libs/hound/mod.ts';
 export { HoundManagement } from './libs/hound-management/mod.ts';
 export { InMemoryStorage } from './libs/storage/in-memory.ts';
 export { DenoKvStorage } from './libs/storage/deno-kv.ts';
+export { generateTypes, generateClient } from './libs/codegen/mod.ts';
+export type { CodegenOptions, ClientgenOptions } from './libs/codegen/mod.ts';
+export type { JobDefinition, EmitOptions } from './types/index.ts';
+
+// ─── Typed emit helpers ───────────────────────────────────────────────────────
+
+/** Emit options without `queue` — queue is owned by defineJob and auto-resolved. */
+export type BoundEmitOptions = Omit<EmitOptions, 'queue'>;
+
+/** Type-safe emit function narrowed to the job map from codegen. */
+export type TypedEmit<TJobMap extends Record<string, any>> = <
+  K extends keyof TJobMap,
+>(event: K, data: TJobMap[K], options?: BoundEmitOptions) => string;
+
+/** Type-safe emitAsync narrowed to the job map from codegen. */
+export type TypedEmitAsync<TJobMap extends Record<string, any>> = <
+  K extends keyof TJobMap,
+>(event: K, data: TJobMap[K], options?: BoundEmitOptions) => Promise<string>;
+
+/**
+ * Cast a Hound instance to have type-safe emit methods.
+ *
+ * @example
+ * import type { HoundJobMap } from '../types/hound-types.ts';
+ * import type { TypedHound } from '@core/mod.ts';
+ *
+ * const hound = Hound.create({ ... }) as TypedHound<typeof ctx, HoundJobMap>;
+ * hound.emit('user.read', { email: '...' }); // typed!
+ */
+export type TypedHound<
+  TApp extends Record<string, any> = Record<string, any>,
+  TJobMap extends Record<string, any> = Record<string, any>,
+> = Omit<Hound<TApp>, 'emit' | 'emitAsync' | 'emitAndWait'> & {
+  emit: TypedEmit<TJobMap>;
+  emitAsync: TypedEmitAsync<TJobMap>;
+  emitAndWait: <K extends keyof TJobMap>(
+    event: K,
+    data: TJobMap[K],
+    options?: BoundEmitOptions & { timeoutMs?: number },
+  ) => Promise<string>;
+};

@@ -92,7 +92,7 @@ export class DenoKvStorage {
     }
 
     const kvKey: Deno.KvKey = ['kv', key];
-    const opts: Deno.KvSetOptions = {};
+    const opts: { expireIn?: number } = {};
     if (ttlMs !== undefined) opts.expireIn = ttlMs;
 
     if (nx) {

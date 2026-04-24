@@ -1,5 +1,7 @@
 import { Hound, HoundManagement, InMemoryStorage } from '@core/mod.ts';
 import type { RedisConnection } from '@core/types/index.ts';
+import type { TypedHound } from '@core/mod.ts';
+import type { HoundJobMap } from '../gen/hound-types.ts';
 
 const REDIS_URL = Deno.env.get('REDIS_URL');
 const DENO_KV = Deno.env.get('DENO_KV');
@@ -31,19 +33,23 @@ const contextApp = {
   foo: 'bar',
 };
 
-const hound = Hound.create({
+const _hound = Hound.create({
   db,
   ctx: contextApp,
-  expose: 4000,
+  importMeta: import.meta,
+  expose: Deno.args.includes('benchmark') ? undefined : 4000,
   concurrency: 10,
   processor: {
-    pollIntervalMs: 1,
+    pollIntervalMs: 1000,
     claimCount: 200,
     maxLogsPerJob: 100,
     jobStateTtlSeconds: 604800, // 7 days
   },
+  jobDirs: ['../_scheduled', '../_tasks'],
+  // outputDir: '../gen',
 });
 
-const management = new HoundManagement({ db, hound });
+const management = new HoundManagement({ db, hound: _hound });
 
-export { hound, management };
+export const hound = _hound as TypedHound<typeof contextApp, HoundJobMap>;
+export { management };

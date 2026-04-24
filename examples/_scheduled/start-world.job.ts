@@ -1,12 +1,20 @@
 import { defineJob } from '@core/mod.ts';
 
-export const startWorldJob = defineJob(
+export const startWorldJob = defineJob<{ foo: string }, { email: string }>(
   'start-world',
   async (ctx) => {
+    ctx.data;
+    ctx.foo;
     console.log(
       '%c- runs every 1 minute',
       'color: white; background-color: red;',
     );
+
+    for (let i = 0; i < 100; i++) {
+      ctx.emit('user.read', {
+        email: 'john.doe@example.com',
+      }, { id: `on-request-${i + 1}`, queue: 'tasks' });
+    }
   },
   {
     repeat: {

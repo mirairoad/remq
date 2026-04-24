@@ -1,5 +1,108 @@
 # Changelog
 
+## [0.49.4] - 2026-04-25
+
+### Summary
+
+Redis Streams replaced with Redis sorted-set (`ZADD`) queues. `Remq` renamed to `Hound`, `RemqManagement` to `HoundManagement`. Crash recovery is now handled by a background **Reaper** instead of Redis PEL/XCLAIM. Storage is now abstracted — Redis, InMemoryStorage, and Deno KV all work. Single `db` connection required (no more `streamdb`).
+
+---
+
+### Breaking Changes
+
+- `Remq` renamed to `Hound` — `import { Hound } from '@hushkey/remq'`
+- `RemqManagement` renamed to `HoundManagement` — now exported from main `@hushkey/remq` package
+- `streamdb` option removed — only `db` is required
+- `processor.streamPriority` renamed to `processor.queuePriority`
+- `processor.read.count` and `processor.read.blockMs` removed (stream-specific options)
+- `processor.dlq.streamKey` renamed to `processor.dlq.streamKey` (DLQ is now a sorted-set queue, not a stream)
+- `HoundManagement` constructor: `new HoundManagement({ db, hound })` — no `streamdb`
+
+---
+
+### Added
+
+#### Sorted-Set Queue Architecture
+
+- Queue: `queues:{queue}:q` ZADD scored by `delayUntil` ms
+- Processing set: `queues:{queue}:processing` ZADD scored by `claimed_at` ms
+- Atomic claim via Lua script — `ZRANGEBYSCORE + ZREM + ZADD` in a single round trip
+- FIFO tie-breaking: fractional sequence added to score to preserve insertion order within the same millisecond
+
+#### Reaper
+
+- Background sweep that reclaims stalled jobs from the processing set back to the queue
+- Runs every `visibilityTimeoutMs / 2` (min 5s) and on startup
+- Replaces Redis PEL / `XCLAIM` — no stream consumer groups needed
+
+#### Storage Abstraction
+
+- New `StorageClient` interface — all internals program against it, never against ioredis directly
+- `InMemoryStorage` — full sorted-set + pipeline support; zero dependencies; suitable for tests and local dev
+- `DenoKvStorage` — Deno KV backend via `DenoKvStorage.open(path?)`
+
+#### `ctx.emitAndWait`
+
+- Handlers now have access to `ctx.emitAndWait(event, data, options)` — emits and blocks until the target job completes or times out
+- Useful for job chains where the next step must succeed before proceeding
+
+#### `processor.claimCount`
+
+- New option (default `200`) — max jobs to claim per poll cycle, replaces `processor.read.count`
+
+---
+
+### Changed
+
+- `processor.streamPriority` → `processor.queuePriority` (same shape, same semantics)
+- Lifecycle comment: `start()` now initializes crons and starts both the Processor and the Reaper
+- Management `queues.reset()` now flushes sorted-set queue and processing set instead of stream + consumer group
+- Management `queues.find()` description updated — sorted-set based queue count
+
+---
+
+### Migration from 0.49.3
+
+**Rename class and constructor:**
+
+```ts
+// Before
+import { Remq, RemqManagement } from '@hushkey/remq';
+const remq = Remq.create({ db, streamdb });
+const management = new RemqManagement({ db, streamdb, remq });
+
+// After
+import { Hound, HoundManagement } from '@hushkey/remq';
+const hound = Hound.create({ db });
+const management = new HoundManagement({ db, hound });
+```
+
+**Rename processor option:**
+
+```ts
+// Before
+processor: { streamPriority: { payments: 1 } }
+
+// After
+processor: { queuePriority: { payments: 1 } }
+```
+
+**Remove stream-specific options:**
+
+```ts
+// Before — remove these
+processor: {
+  read: { count: 200, blockMs: 50 },
+}
+
+// After — use claimCount instead
+processor: {
+  claimCount: 200,
+}
+```
+
+---
+
 ## [0.49.3] - 2026-03-07
 
 ### Summary

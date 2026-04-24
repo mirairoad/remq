@@ -28,18 +28,11 @@ return jobs
 `;
 
 export class QueueStore {
-  // Per-instance sequence number to break score ties in FIFO order.
-  // Adds 0.001 per job so jobs emitted in the same millisecond preserve insertion order.
-  // Max drift: 1ms per 1000 jobs — negligible for delay accuracy.
-  // Single-process safe; multi-process would need Redis INCR (not needed here).
-  #seq = 0;
-
   constructor(private readonly db: RedisConnection) {}
 
-  /** Add a job to the queue. score = delayUntil + fractional sequence to preserve FIFO on ties. */
+  /** Add a job to the queue. Score must already include any tiebreaker from the caller. */
   async enqueue(queue: string, jobId: string, score: number): Promise<void> {
-    const tiebreaker = (this.#seq++ % 1000) * 0.001;
-    await this.db.zadd(this.#qKey(queue), score + tiebreaker, jobId);
+    await this.db.zadd(this.#qKey(queue), score, jobId);
   }
 
   /**

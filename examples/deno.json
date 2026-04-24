@@ -16,8 +16,8 @@
   "tasks": {
     "dev": "deno run -A --watch --env-file='../.env' index.ts",
     "start": "deno run -A --env-file='../.env' index.ts",
-    "benchmark": "deno run -A --env-file='../.env' benchmarks/run.ts",
-    "benchmark:1": "deno run -A --env-file='../.env' ../core/benchmark/request-response.ts"
+    "benchmark": "deno task dev benchmark",
+    "codegen": "deno run -A plugins/codegen.plugin.ts"
   },
   "fmt": {
     "useTabs": false,

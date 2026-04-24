@@ -1,15 +1,18 @@
-import { hound, management } from './hound.plugin.ts';
-import { requestJob } from './benchmarks/request.job.ts';
-import { startWorldJob } from './_scheduled/start-world.ts';
-import { midWorldJob } from './_scheduled/mid-world.ts';
-import { endWorldJob } from './_scheduled/end-world.ts';
-// import { userReadJob } from './_tasks/user.read.job.ts';
-// import sqlite from 'node:sqlite'
-hound.on(requestJob);
-hound.on(startWorldJob);
-hound.on(midWorldJob);
-hound.on(endWorldJob);
+import { hound } from './plugins/hound.plugin.ts';
 
-// hound.on(userReadJob);
+if (Deno.args.includes('benchmark')) {
+  await hound.benchmark({
+    concurrency: 1,
+    totalJobs: 100,
+    simulatedWorkMs: 50,
+  });
 
-await hound.start();
+  Deno.exit(0);
+}
+
+await hound.start(); // auto-registers all *.job.ts from jobDirs
+
+hound.emit('user.read', {
+  email: 'leo@gmail.com',
+  name: 'lucio',
+}, { id: 'user.read-1' });
