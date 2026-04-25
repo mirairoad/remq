@@ -57,7 +57,7 @@ function checkAuth(req: Request, token?: string): Response | null {
   return null;
 }
 
-export function createGateway(options: GatewayOptions) {
+export function createGateway(options: GatewayOptions): Deno.HttpServer<Deno.NetAddr> {
   const { port, hostname = '0.0.0.0', hound, auth, management, onListen } = options;
 
   return Deno.serve(
