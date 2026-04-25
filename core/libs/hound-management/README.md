@@ -6,19 +6,22 @@ promote or delete jobs, and subscribe to completion events.
 ## Setup
 
 ```ts
-import { Hound, HoundManagement } from '@hushkey/remq';
+import { Hound, HoundManagement } from '@hushkey/hound';
 
 const hound = Hound.create({ db });
 const management = new HoundManagement({ db, hound });
 ```
 
-`hound` is optional — only required for `management.events` and `management.api.jobs.promote`.
+`hound` is optional — only required for `management.events`, `management.api.jobs.promote`, and `management.api.jobs.retry`.
 
 ## Jobs API
 
 ```ts
 // List all jobs (most recent state per jobId)
 const jobs = await management.api.jobs.find();
+
+// Filter by queue and/or status
+const failed = await management.api.jobs.find({ queue: 'payments', status: 'failed' });
 
 // Get single job by {queue}:{jobId}
 const job = await management.api.jobs.get('default:job-id-123');
@@ -31,6 +34,12 @@ await management.api.jobs.promote('default:job-id-123');
 
 // Pause — delay until Number.MAX_SAFE_INTEGER
 await management.api.jobs.pause('default:job-id-123');
+
+// Resume — unfreeze a paused job
+await management.api.jobs.resume('default:job-id-123');
+
+// Retry — re-enqueue a failed job (requires Hound instance)
+await management.api.jobs.retry('default:job-id-123');
 ```
 
 ## Queues API
@@ -38,6 +47,10 @@ await management.api.jobs.pause('default:job-id-123');
 ```ts
 // List all queues with pause state and length
 const queues = await management.api.queues.find();
+
+// Per-status job counts
+const stats = await management.api.queues.stats('payments');
+// { waiting, delayed, processing, completed, failed, total }
 
 await management.api.queues.pause('payments');
 await management.api.queues.resume('payments');
@@ -90,5 +103,14 @@ interface QueueRecord {
   name: string;
   paused: boolean;
   length: number;
+}
+
+interface QueueStats {
+  waiting: number;
+  delayed: number;
+  processing: number;
+  completed: number;
+  failed: number;
+  total: number;
 }
 ```

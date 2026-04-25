@@ -1,0 +1,101 @@
+{
+  "slug": "getting-started",
+  "title": "Getting Started",
+  "description": "Install Hound and process your first job in minutes",
+  "sections": [
+    {
+      "id": "what-is-hound",
+      "heading": "What is Hound?",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Hound is a type-safe, Deno-native job queue backed by Redis sorted sets. It provides at-least-once delivery, concurrency control, retries, cron scheduling, and a management REST API out of the box."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Redis sorted sets for reliable, ordered delivery",
+            "Type-safe job definitions with full TypeScript inference",
+            "At-least-once delivery with an automatic Reaper",
+            "Per-handler concurrency limits and queue priorities",
+            "Fixed and exponential retry backoff",
+            "Cron / repeat scheduling",
+            "Built-in HTTP gateway with management REST API",
+            "InMemoryStorage and Deno KV backends for local dev and testing"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "requirements",
+      "heading": "Requirements",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Deno 2.x",
+            "Redis (optional — InMemoryStorage works without Redis)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "installation",
+      "heading": "Installation",
+      "blocks": [
+        { "type": "p", "text": "Add Hound to your project via JSR:" },
+        { "type": "code", "lang": "sh", "text": "deno add jsr:@hushkey/hound" },
+        {
+          "type": "p",
+          "text": "Or add it directly to your deno.json imports:"
+        },
+        {
+          "type": "code",
+          "lang": "json",
+          "filename": "deno.json",
+          "text": "{\n  \"imports\": {\n    \"hound/\": \"jsr:@hushkey/hound/\"\n  }\n}"
+        }
+      ]
+    },
+    {
+      "id": "first-job",
+      "heading": "Your first job",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Create a Hound instance, register a handler, start the processor, then emit a job:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "filename": "main.ts",
+          "text": "import { Hound, InMemoryStorage } from 'hound/';\n\nconst hound = Hound.create({\n  db: new InMemoryStorage(),\n});\n\nhound.on('user.welcome', async (ctx) => {\n  ctx.logger(`Sending welcome email to ${ctx.data.email}`);\n});\n\nawait hound.start();\nhound.emit('user.welcome', { email: 'leo@example.com' });"
+        },
+        {
+          "type": "tip",
+          "text": "InMemoryStorage is ideal for local development and tests — no Redis setup required."
+        }
+      ]
+    },
+    {
+      "id": "with-redis",
+      "heading": "Connecting to Redis",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Pass any Redis-compatible client to the db option for production use:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "filename": "main.ts",
+          "text": "import { Hound } from 'hound/';\nimport { connect } from 'npm:ioredis';\n\nconst redis = new connect(Deno.env.get('REDIS_URL'));\n\nconst hound = Hound.create({ db: redis });\n\nhound.on('email.send', async (ctx) => {\n  await sendEmail(ctx.data);\n});\n\nawait hound.start();"
+        },
+        {
+          "type": "tip",
+          "text": "Hound is a singleton — Hound.create() returns the same instance on repeated calls. Use Hound.getInstance() to retrieve it elsewhere in your codebase."
+        }
+      ]
+    }
+  ]
+}

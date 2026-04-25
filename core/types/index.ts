@@ -86,6 +86,8 @@ export type JobContext<
   queue: string;
   /** Current status — always 'processing' inside handler. */
   status: string;
+  /** Unix ms timestamp when the job was emitted (enqueuedAt). Use with Date.now() for e2e latency. */
+  enqueuedAt: number;
   /** Remaining retry attempts. */
   retryCount: number;
   /** How many times this job has been retried so far. */
@@ -174,8 +176,6 @@ export interface BenchmarkOptions {
   totalJobs: number;
   /** Simulated work delay per job in ms. Defaults to 0. */
   simulatedWorkMs?: number;
-  /** Number of jobs running in parallel. Defaults to 10. */
-  concurrency?: number;
   /** Per-job timeout in ms. Defaults to 30_000. */
   timeoutMs?: number;
 }
@@ -348,8 +348,6 @@ export interface HoundOptions<
   ctx?: TApp;
   /** Max concurrent jobs across all queues. Default 1. */
   concurrency?: number;
-  /** WebSocket gateway port for real-time job updates. */
-  expose?: number;
   /**
    * Pass `import.meta` from your plugin file so Hound can resolve `jobDirs` relative to it.
    * Required when `jobDirs` is set.

@@ -4,7 +4,7 @@ Deno-native Redis job queue. Sorted-set delivery, crash recovery via Reaper,
 cron scheduling, and a management API. Works with Redis (ioredis), InMemoryStorage, and Deno KV.
 
 ```ts
-import { Hound } from "@hushkey/remq";
+import { Hound } from "@hushkey/hound";
 
 const hound = Hound.create({ db });
 
@@ -21,7 +21,7 @@ hound.emit("email.send", { to: "leo@hushkey.jp" });
 ## Installation
 
 ```ts
-import { Hound } from "jsr:@hushkey/remq@^0.49.4";
+import { Hound } from "jsr:@hushkey/hound@^0.50.0";
 ```
 
 ---
@@ -99,7 +99,7 @@ hound.on('property.sync', async (ctx) => {
   ctx.emit(...)       // fire and forget from handler
   ctx.emitAsync(...)  // awaitable emit from handler
   ctx.emitAndWait(...)// emit and block until the job completes
-  ctx.socket.update() // WebSocket progress update (requires expose)
+  ctx.socket.update() // WebSocket progress update (requires hound.listen())
 })
 ```
 
@@ -118,9 +118,10 @@ hound.on('property.sync', async (ctx) => {
 ## Lifecycle
 
 ```ts
-await hound.start(); // initialize crons, start processor and Reaper
-await hound.stop();  // stop processor and Reaper, drain in-flight jobs, shut down WS gateway
-await hound.drain(); // wait for all active jobs to complete
+await hound.start();             // initialize crons, start processor and Reaper
+hound.listen(4000, management);  // start HTTP gateway (call before or after start)
+await hound.stop();              // stop processor, Reaper, and gateway
+await hound.drain();             // wait for all active jobs to complete
 ```
 
 ---
@@ -132,13 +133,12 @@ await hound.drain(); // wait for all active jobs to complete
 | `db`          | `Redis \| InMemoryStorage \| DenoKvStorage` | Storage backend — state keys, sorted-set queues, locks   |
 | `ctx`         | `TApp`                                      | App-level context injected into every handler as `ctx.*` |
 | `concurrency` | `number`                                    | Max concurrent jobs across all queues. Default `1`       |
-| `expose`      | `number`                                    | WebSocket gateway port for real-time job updates         |
 | `debug`       | `boolean`                                   | Enable debug logging. Default `false`                    |
 
 ### Storage backends
 
 ```ts
-import { Hound, InMemoryStorage, DenoKvStorage } from "@hushkey/remq";
+import { Hound, InMemoryStorage, DenoKvStorage } from "@hushkey/hound";
 import { Redis } from "npm:ioredis";
 
 // Redis (production)
@@ -214,12 +214,16 @@ hound.emit("payment.process", { amount: 100 }, {
 
 ---
 
-## WebSocket
+## HTTP Gateway
 
 ```ts
-// Server
-Hound.create({ expose: 4000 });
+const management = new HoundManagement({ db, hound });
+hound.listen(4000, management);
+```
 
+### WebSocket progress
+
+```ts
 // Handler — send progress updates to connected clients
 hound.on("video.encode", async (ctx) => {
   await encodeChunk(1);
@@ -244,7 +248,7 @@ ws.onmessage = ({ data }) => console.log(JSON.parse(data));
 ## Management API
 
 ```ts
-import { HoundManagement } from "@hushkey/remq";
+import { HoundManagement } from "@hushkey/hound";
 
 const management = new HoundManagement({ db, hound });
 ```
@@ -252,21 +256,26 @@ const management = new HoundManagement({ db, hound });
 ### Jobs
 
 ```ts
-await management.api.jobs.find(); // all jobs, most recent state per jobId
-await management.api.jobs.get("default:jobId"); // single job by {queue}:{jobId}
+await management.api.jobs.find();                          // all jobs
+await management.api.jobs.find({ queue: 'payments' });     // filter by queue
+await management.api.jobs.find({ status: 'failed' });      // filter by status
+await management.api.jobs.get("default:jobId");            // single job by {queue}:{jobId}
 await management.api.jobs.delete("default:jobId");
-await management.api.jobs.promote("default:jobId"); // fire immediately
-await management.api.jobs.pause("default:jobId"); // delay until Number.MAX_SAFE_INTEGER
+await management.api.jobs.promote("default:jobId");        // fire delayed job immediately
+await management.api.jobs.pause("default:jobId");          // freeze until resumed
+await management.api.jobs.resume("default:jobId");         // unfreeze paused job
+await management.api.jobs.retry("default:jobId");          // re-enqueue failed job
 ```
 
 ### Queues
 
 ```ts
-await management.api.queues.find(); // all queues including empty ones
+await management.api.queues.find();                        // all queues + length + paused state
+await management.api.queues.stats("payments");             // { waiting, delayed, processing, completed, failed, total }
 await management.api.queues.pause("payments");
 await management.api.queues.resume("payments");
-await management.api.queues.reset("payments"); // flush all jobs + sorted sets
-await management.api.queues.running("payments"); // true if active, false if paused
+await management.api.queues.reset("payments");             // flush all jobs + sorted sets
+await management.api.queues.running("payments");           // true if active, false if paused
 ```
 
 ### Events
@@ -313,16 +322,14 @@ Hound.create({
 
 ## Performance
 
-| Metric                   | Streams (v0.49.3) | Sorted-set (v0.49.4) |
-| ------------------------ | ----------------- | -------------------- |
-| Throughput               | ~506 jobs/sec     | higher               |
-| At-least-once delivery   | ✓                 | ✓                    |
-| Crash recovery           | ✓ (XCLAIM / PEL)  | ✓ (Reaper)           |
-| Exponential backoff      | ✓                 | ✓                    |
-| Queue priority           | ✓                 | ✓                    |
-| Cron restart reliability | ✓                 | ✓                    |
-| Storage backends         | Redis only        | Redis, InMemory, KV  |
-| Single connection needed | ✗ (db + streamdb) | ✓                    |
+100 jobs, concurrency 10, no simulated work. MacBook Pro 16" M1 Pro, Redis via Docker.
+
+| Metric      | InMemoryStorage | Redis (local) |
+| ----------- | --------------- | ------------- |
+| Throughput  | 4,144 jobs/sec  | 511 jobs/sec  |
+| Latency p50 | 2.70ms          | 18.18ms       |
+| Latency p95 | 3.52ms          | 29.77ms       |
+| Latency avg | 2.39ms          | 19.23ms       |
 
 ---
 

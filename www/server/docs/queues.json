@@ -1,0 +1,104 @@
+{
+  "slug": "queues",
+  "title": "Queues & Concurrency",
+  "description": "Named queues, concurrency limits, priorities, and debouncing",
+  "sections": [
+    {
+      "id": "overview",
+      "heading": "Overview",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Hound supports multiple named queues, each processed independently. Handlers declare which queue they run in, and the processor can prioritize queues or limit concurrency globally or per handler."
+        }
+      ]
+    },
+    {
+      "id": "named-queues",
+      "heading": "Named queues",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Assign handlers to queues with the queue option. Jobs emitted without a queue default to 'default':"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "hound.on('email.send', handler, { queue: 'emails' });\nhound.on('report.generate', handler, { queue: 'heavy' });\nhound.on('analytics.track', handler); // uses 'default' queue"
+        }
+      ]
+    },
+    {
+      "id": "concurrency",
+      "heading": "Concurrency",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Limit simultaneous executions globally via HoundOptions.concurrency or per handler:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "const hound = Hound.create({\n  db: redis,\n  concurrency: 20, // global max across all handlers\n});\n\nhound.on('email.send', handler, {\n  concurrency: 5, // max 5 concurrent email sends\n});"
+        },
+        {
+          "type": "tip",
+          "text": "Per-handler concurrency uses a semaphore internally, so it works correctly even when multiple Hound workers share the same queue."
+        }
+      ]
+    },
+    {
+      "id": "priority",
+      "heading": "Priority",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Set queuePriority in processor options to give certain queues a head start during polling. Lower numbers are processed first:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "const hound = Hound.create({\n  db: redis,\n  processor: {\n    queuePriority: {\n      critical: 1,\n      default: 2,\n      heavy: 3,\n    },\n  },\n});"
+        },
+        {
+          "type": "p",
+          "text": "You can also set per-job priority at emit time with the priority option. Lower values are claimed first within a queue."
+        }
+      ]
+    },
+    {
+      "id": "debounce",
+      "heading": "Debouncing",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "The debounce option collapses multiple rapid emits of the same event into a single execution. Useful for search-index updates or user activity bursts:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "hound.on('search.reindex', handler, {\n  debounce: 2_000, // only run once per 2s burst\n});"
+        },
+        {
+          "type": "warning",
+          "text": "Debouncing uses the job ID as the dedup key. Only one pending job per event name will be enqueued during the window."
+        }
+      ]
+    },
+    {
+      "id": "pause-resume",
+      "heading": "Pause and resume",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Queues can be paused via the management API. A paused queue stops the processor from claiming new jobs until resumed:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "const mgmt = new HoundManagement({ db: redis, hound });\n\nawait mgmt.api.queues.pause('heavy');\n// ... maintenance window ...\nawait mgmt.api.queues.resume('heavy');"
+        }
+      ]
+    }
+  ]
+}

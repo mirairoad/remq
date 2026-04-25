@@ -1,0 +1,212 @@
+@import "tailwindcss";
+@plugin "daisyui" {
+  themes: light --default, dark --prefersdark;
+}
+
+@plugin "daisyui/theme" {
+  name: "light";
+  default: true;
+  prefersdark: false;
+  color-scheme: "light";
+  --color-base-100: oklch(96% 0.016 293.756);
+  --color-base-200: oklch(94% 0.029 294.588);
+  --color-base-300: oklch(89% 0.057 293.283);
+  --color-base-content: oklch(38% 0.189 293.745);
+  --color-primary: oklch(71% 0.203 305.504);
+  --color-primary-content: oklch(29% 0.149 302.717);
+  --color-secondary: oklch(82% 0.189 84.429);
+  --color-secondary-content: oklch(27% 0.077 45.635);
+  --color-accent: oklch(75% 0.183 55.934);
+  --color-accent-content: oklch(26% 0.079 36.259);
+  --color-neutral: oklch(38% 0.189 293.745);
+  --color-neutral-content: oklch(96% 0.016 293.756);
+  --color-info: oklch(70% 0.165 254.624);
+  --color-info-content: oklch(28% 0.091 267.935);
+  --color-success: oklch(77% 0.152 181.912);
+  --color-success-content: oklch(27% 0.046 192.524);
+  --color-warning: oklch(85% 0.199 91.936);
+  --color-warning-content: oklch(28% 0.066 53.813);
+  --color-error: oklch(70% 0.191 22.216);
+  --color-error-content: oklch(25% 0.092 26.042);
+  --radius-selector: 0.5rem;
+  --radius-field: 0.25rem;
+  --radius-box: 2rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 1;
+  --noise: 1;
+}
+
+html {
+  background-color: #f0f0f0;
+  scroll-behavior: smooth !important;
+}
+
+/* Form elements: primary border on active/focus states */
+input:active,
+input:focus,
+input:focus-within,
+select:active,
+select:focus,
+select:focus-within,
+textarea:active,
+textarea:focus,
+textarea:focus-within,
+.input:active,
+.input:focus,
+.input:focus-within,
+.select:active,
+.select:focus,
+.select:focus-within,
+.textarea:active,
+.textarea:focus,
+.textarea:focus-within {
+  border-color: oklch(var(--p)) !important;
+  outline: none !important;
+}
+
+/* Form elements: primary border on active/focus states */
+input,
+select,
+textarea,
+.input,
+.select,
+.textarea {
+  &:active,
+  &:focus,
+  &:focus-within {
+    border-color: var(--color-primary) !important;
+    outline: none !important;
+  }
+}
+
+.loading-indicator:before {
+  content: "";
+  background: #00000080;
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+}
+
+.loading-indicator:after {
+  content: " ";
+  position: fixed;
+  top: 40%;
+  left: 45%;
+  z-index: 10010;
+  color: white;
+  text-align: center;
+  font-weight: bold;
+  font-size: 1.2rem;
+  border: 16px solid #f3f3f3; /* Light grey */
+  border-top: 16px solid #0474bf; /* Blue */
+  border-radius: 50%;
+  width: 120px;
+  height: 120px;
+  animation: spin 2s linear infinite;
+}
+
+@layer utilities {
+  /* Hide scrollbar while keeping scroll (horizontal strips) */
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .bounce-once {
+    animation: bounceOnce 0.4s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+  }
+  @keyframes bounceOnce {
+    0%, 100% {
+      transform: scale(1);
+    }
+    30% {
+      transform: scale(1.1);
+    }
+    60% {
+      transform: scale(0.95);
+    }
+  }
+
+  .spin-once {
+    animation: spin-once 0.5s ease-in-out;
+  }
+  @keyframes spin-once {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}
+
+@keyframes button-pop {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes fill {
+  to {
+    width: 100%;
+  }
+}
+
+/* Add these styles to your existing global.css */
+
+/* Page transition animations */
+.page-enter {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.page-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 300ms ease-in-out, transform 300ms ease-in-out;
+}
+
+.page-exit {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.page-exit-active {
+  opacity: 0;
+  transform: translateY(-20px);
+  transition: opacity 300ms ease-in-out, transform 300ms ease-in-out;
+}
+
+/* Prevent layout shift during transitions */
+.page-transition-container {
+  min-height: 100vh;
+}
+
+/* INPUTS */
+.input-disabled {
+  background-color: hsl(var(--b2)) !important;
+  border-color: hsl(var(--bc) / 0.2) !important;
+  color: hsl(var(--bc) / 0.5) !important;
+  opacity: 0.6 !important;
+}
+
+/* map remove components */
+.mapboxgl-ctrl-bottom-left,
+.mapboxgl-ctrl-bottom-right,
+.mapboxgl-ctrl-fullscreen {
+  display: none !important;
+}

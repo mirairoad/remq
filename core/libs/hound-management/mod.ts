@@ -45,6 +45,24 @@ export interface QueueRecord {
   length: number;
 }
 
+/** Per-status job counts for a single queue. Returned by queues.stats(). */
+export interface QueueStats {
+  waiting: number;
+  delayed: number;
+  processing: number;
+  completed: number;
+  failed: number;
+  total: number;
+}
+
+/** Optional filters for jobs.find(). */
+export interface FindJobsOptions {
+  /** Narrow to a specific queue name. */
+  queue?: string;
+  /** Narrow to a specific job status. */
+  status?: JobRecord['status'];
+}
+
 /** Payload emitted when a job reaches a terminal state (completed or failed). */
 export interface JobFinishedPayload {
   jobId: string;
@@ -72,8 +90,8 @@ export class HoundManagement {
   private readonly hound?: Hound<any>;
 
   readonly api: {
-    jobs: JobsApi;
-    queues: QueuesApi;
+    readonly jobs: JobsApi;
+    readonly queues: QueuesApi;
   };
 
   readonly events: {
@@ -121,10 +139,11 @@ class JobsApi {
   ) {}
 
   /**
-   * Find all jobs across all queues and statuses.
+   * Find jobs across all queues and statuses.
    * Returns one entry per jobId — most recent terminal state wins for completed/failed.
+   * Pass options to narrow by queue or status.
    */
-  async find(): Promise<JobRecord[]> {
+  async find(options?: FindJobsOptions): Promise<JobRecord[]> {
     const jobMap = new Map<string, JobRecord>();
 
     for (const status of ACTIVE_STATUSES) {
@@ -169,7 +188,10 @@ class JobsApi {
       }
     }
 
-    return Array.from(jobMap.values()).sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+    let results = Array.from(jobMap.values()).sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+    if (options?.queue) results = results.filter((j) => j.queue === options.queue);
+    if (options?.status) results = results.filter((j) => j.status === options.status);
+    return results;
   }
 
   async get(key: string): Promise<JobRecord | null> {
@@ -185,7 +207,12 @@ class JobsApi {
     const jobId = rest.join(':');
     if (!queue || !jobId) throw new Error('key must be in format "{queue}:{jobId}"');
 
-    const activeKeys = ACTIVE_STATUSES.map((s) => `queues:${queue}:${jobId}:${s}`);
+    // Only include active keys that actually exist in Redis
+    const candidateActive = ACTIVE_STATUSES.map((s) => `queues:${queue}:${jobId}:${s}`);
+    const pipe = this.db.pipeline();
+    candidateActive.forEach((k) => pipe.get(k));
+    const fetched = await pipe.exec() as [Error | null, string | null][];
+    const activeKeys = candidateActive.filter((_, i) => fetched[i][1] !== null);
 
     const terminalKeys: string[] = [];
     for (const status of TERMINAL_STATUSES) {
@@ -237,6 +264,48 @@ class JobsApi {
     await this.db.set(`queues:${job.queue}:${job.id}:${job.status}`, JSON.stringify(paused));
 
     return paused as JobRecord;
+  }
+
+  /** Resume a paused job — reverses a previous jobs.pause(). Resets delayUntil to now. */
+  async resume(key: string): Promise<JobRecord | null> {
+    const job = await this.get(key);
+    if (!job) return null;
+
+    if (!job.paused) {
+      throw new Error(
+        `Cannot resume job that is not paused. Current status: "${job.status}"`,
+      );
+    }
+
+    const resumed = { ...job, delayUntil: Date.now(), lockUntil: Date.now(), paused: false };
+    await this.db.set(`queues:${job.queue}:${job.id}:${job.status}`, JSON.stringify(resumed));
+
+    return resumed;
+  }
+
+  /**
+   * Retry a failed job — re-enqueues it for immediate processing.
+   * Requires a Hound instance: new HoundManagement({ db, hound }).
+   */
+  async retry(key: string): Promise<JobRecord | null> {
+    if (!this.hound) {
+      throw new Error(
+        'retry() requires a Hound instance: new HoundManagement({ db, hound })',
+      );
+    }
+
+    const job = await this.get(key);
+    if (!job) return null;
+
+    if (job.status !== 'failed') {
+      throw new Error(
+        `Cannot retry job with status "${job.status}". Only failed jobs can be retried.`,
+      );
+    }
+
+    this.hound.emit(job.name, job.data, { queue: job.queue, id: job.id, delay: new Date() });
+
+    return job;
   }
 
   #parseJob(data: string, status: string, key: string, execId?: string): JobRecord | null {
@@ -359,6 +428,23 @@ class QueuesApi {
   async running(key: string): Promise<boolean> {
     const val = await this.db.get(`queues:${key}:paused`);
     return val !== 'true';
+  }
+
+  /** Per-status job counts for a queue. Deduplicates completed/failed by jobId. */
+  async stats(key: string): Promise<QueueStats> {
+    const counts = { waiting: 0, delayed: 0, processing: 0, completed: 0, failed: 0 };
+
+    for (const status of ACTIVE_STATUSES) {
+      const keys = await this.#scanStateKeys(`queues:${key}:*:${status}`);
+      counts[status] = keys.length;
+    }
+
+    for (const status of TERMINAL_STATUSES) {
+      const keys = await this.#scanStateKeys(`queues:${key}:*:${status}:*`);
+      counts[status] = new Set(keys.map((k) => k.split(':')[2])).size;
+    }
+
+    return { ...counts, total: counts.waiting + counts.delayed + counts.processing + counts.completed + counts.failed };
   }
 
   async #scanStateKeys(pattern: string): Promise<string[]> {

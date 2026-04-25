@@ -1,0 +1,163 @@
+{
+  "slug": "configuration",
+  "title": "Configuration",
+  "description": "Full HoundOptions, processor, retry, and DLQ reference",
+  "sections": [
+    {
+      "id": "hound-options",
+      "heading": "HoundOptions",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Pass options to Hound.create() to configure the instance:"
+        },
+        {
+          "type": "table",
+          "headers": ["Option", "Type", "Default", "Description"],
+          "rows": [
+            [
+              "db",
+              "StorageClient",
+              "required",
+              "Storage backend (Redis, InMemoryStorage, DenoKvStorage)"
+            ],
+            [
+              "ctx",
+              "TApp",
+              "undefined",
+              "Shared app context passed to all handlers"
+            ],
+            [
+              "concurrency",
+              "number",
+              "10",
+              "Global max simultaneous job executions"
+            ],
+            [
+              "auth",
+              "string",
+              "undefined",
+              "Bearer token required by the HTTP gateway"
+            ],
+            [
+              "importMeta",
+              "ImportMeta",
+              "undefined",
+              "Required for auto-discovery via jobDirs"
+            ],
+            [
+              "jobDirs",
+              "string[]",
+              "undefined",
+              "Directories to scan for *.job.ts files on start"
+            ]
+          ]
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "const hound = Hound.create({\n  db: redis,\n  ctx: { db: myDatabase, config: appConfig },\n  concurrency: 25,\n  auth: Deno.env.get('HOUND_TOKEN'),\n  importMeta: import.meta,\n  jobDirs: ['./jobs'],\n  processor: { pollIntervalMs: 500 },\n});"
+        }
+      ]
+    },
+    {
+      "id": "processor-options",
+      "heading": "Processor options",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Fine-tune the processor with the processor sub-option:"
+        },
+        {
+          "type": "table",
+          "headers": ["Option", "Type", "Default", "Description"],
+          "rows": [
+            [
+              "pollIntervalMs",
+              "number",
+              "250",
+              "How often the processor polls for new jobs"
+            ],
+            ["claimCount", "number", "10", "Jobs claimed per poll cycle"],
+            [
+              "visibilityTimeoutMs",
+              "number",
+              "30000",
+              "How long before a stalled job is reclaimed by the Reaper"
+            ],
+            [
+              "jobStateTtlSeconds",
+              "number",
+              "86400",
+              "How long completed and failed job records are kept"
+            ],
+            [
+              "maxLogsPerJob",
+              "number",
+              "100",
+              "Max log entries stored per job"
+            ],
+            [
+              "queuePriority",
+              "Record<string, number>",
+              "undefined",
+              "Queue ordering — lower number = higher priority"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "retry-config",
+      "heading": "Retry configuration",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Set default retry behaviour in processor.retry. These defaults can be overridden per handler or per emit:"
+        },
+        {
+          "type": "table",
+          "headers": ["Option", "Type", "Default", "Description"],
+          "rows": [
+            [
+              "retry.retryDelayMs",
+              "number",
+              "1000",
+              "Base delay between retry attempts"
+            ],
+            [
+              "retry.retryBackoff",
+              "'fixed' | 'exponential'",
+              "'fixed'",
+              "Backoff strategy applied to retryDelayMs"
+            ]
+          ]
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "const hound = Hound.create({\n  db: redis,\n  processor: {\n    retry: {\n      retryDelayMs: 2_000,\n      retryBackoff: 'exponential',\n    },\n  },\n});"
+        }
+      ]
+    },
+    {
+      "id": "dlq",
+      "heading": "Dead-letter queue",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Configure a DLQ to capture jobs that have exhausted all retry attempts. Failed jobs are written to a Redis stream for later inspection or replay:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "const hound = Hound.create({\n  db: redis,\n  processor: {\n    dlq: {\n      streamKey: 'hound:dlq',\n    },\n  },\n});"
+        },
+        {
+          "type": "tip",
+          "text": "Read the DLQ stream with XREAD to inspect or replay failed jobs. Each entry contains the full JobRecord serialized as a JSON string."
+        }
+      ]
+    }
+  ]
+}

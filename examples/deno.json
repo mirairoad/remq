@@ -1,11 +1,11 @@
 {
-  "name": "@leotermine/tempotask-examples",
-  "version": "0.0.1",
-  "description": "examples for tempotask",
+  "name": "@hushkey/hound-examples",
+  "version": "0.50.0",
+  "description": "Examples for @hushkey/hound",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/mirairoad/tempotask"
+    "url": "https://github.com/mirairoad/hound"
   },
   "imports": {
     "@core/": "../core/"
@@ -16,7 +16,7 @@
   "tasks": {
     "dev": "deno run -A --watch --env-file='../.env' index.ts",
     "start": "deno run -A --env-file='../.env' index.ts",
-    "benchmark": "deno task dev benchmark",
+    "benchmark": "deno run -A --env-file='../.env' benchmark.ts",
     "codegen": "deno run -A plugins/codegen.plugin.ts"
   },
   "fmt": {

@@ -1,0 +1,99 @@
+{
+  "slug": "storage",
+  "title": "Storage Backends",
+  "description": "Redis, in-memory, and Deno KV adapters",
+  "sections": [
+    {
+      "id": "overview",
+      "heading": "Overview",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Hound is storage-agnostic. The db option accepts any object that implements the StorageClient interface. Three built-in adapters are provided:"
+        },
+        {
+          "type": "table",
+          "headers": ["Adapter", "Use case"],
+          "rows": [
+            [
+              "InMemoryStorage",
+              "Local development, unit tests, single-process apps"
+            ],
+            [
+              "Redis (ioredis / deno-redis)",
+              "Production, multi-worker, persistence required"
+            ],
+            ["DenoKvStorage", "Deno Deploy and Deno KV-based environments"]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "in-memory",
+      "heading": "InMemoryStorage",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Zero-dependency in-process storage. Data is lost on restart. Ideal for development and tests:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "import { Hound, InMemoryStorage } from 'hound/';\n\nconst hound = Hound.create({\n  db: new InMemoryStorage(),\n});"
+        },
+        {
+          "type": "warning",
+          "text": "InMemoryStorage does not support multiple workers sharing the same queue. Use Redis for multi-process setups."
+        }
+      ]
+    },
+    {
+      "id": "redis",
+      "heading": "Redis",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Pass any Redis-compatible client directly. Hound uses sorted sets, strings, and pub/sub — compatible with Redis 6+:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "import { Hound } from 'hound/';\nimport { connect } from 'npm:ioredis';\n\nconst redis = new connect(Deno.env.get('REDIS_URL'));\n\nconst hound = Hound.create({ db: redis });"
+        },
+        {
+          "type": "tip",
+          "text": "Hound is compatible with Upstash Redis (serverless) for environments where a persistent connection isn't practical."
+        }
+      ]
+    },
+    {
+      "id": "deno-kv",
+      "heading": "DenoKvStorage",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Use the built-in Deno KV adapter for Deno Deploy or edge environments:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "import { Hound, DenoKvStorage } from 'hound/';\n\nconst kv = await Deno.openKv();\nconst hound = Hound.create({\n  db: new DenoKvStorage(kv),\n});"
+        }
+      ]
+    },
+    {
+      "id": "custom",
+      "heading": "Custom adapter",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Implement the StorageClient interface to use any storage system. The interface mirrors the Redis command set used by Hound — zadd, zrange, get, set, del, subscribe, publish, and a handful of others."
+        },
+        {
+          "type": "tip",
+          "text": "StorageClient is exported from hound/ — import it for type-safe custom adapter development."
+        }
+      ]
+    }
+  ]
+}

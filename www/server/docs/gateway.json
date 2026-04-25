@@ -1,0 +1,161 @@
+{
+  "slug": "gateway",
+  "title": "HTTP Gateway",
+  "description": "REST gateway, management endpoints, auth, and generated client",
+  "sections": [
+    {
+      "id": "overview",
+      "heading": "Overview",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Hound includes a built-in HTTP gateway that exposes emit and management endpoints over REST. It lets external services emit jobs without a direct Redis connection and provides a browser-friendly management interface."
+        }
+      ]
+    },
+    {
+      "id": "listen",
+      "heading": "hound.listen()",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Start the gateway via hound.listen(). Pass a HoundManagement instance to also expose the management endpoints:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "import { Hound, HoundManagement } from 'hound/';\n\nconst hound = Hound.create({ db: redis, auth: 'my-secret-token' });\nconst mgmt = new HoundManagement({ db: redis, hound });\n\nawait hound.start();\nhound.listen(4000, mgmt, () => console.log('Gateway on :4000'));"
+        },
+        {
+          "type": "p",
+          "text": "Or use createGateway() for more control over hostname and options:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "import { createGateway } from 'hound/';\n\ncreateGateway({\n  port: 4000,\n  hostname: '0.0.0.0',\n  hound,\n  management: mgmt,\n  auth: 'my-secret-token',\n});"
+        }
+      ]
+    },
+    {
+      "id": "emit-endpoints",
+      "heading": "Emit endpoints",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "These endpoints are always available, regardless of whether management is enabled:"
+        },
+        {
+          "type": "table",
+          "headers": ["Method", "Path", "Description"],
+          "rows": [
+            ["GET", "/health", "Returns { status: 'ok' }"],
+            [
+              "POST",
+              "/emit",
+              "Emit a single job — body: { event, data?, options? }"
+            ],
+            [
+              "POST",
+              "/emit/batch",
+              "Emit multiple jobs — body: [{ event, data?, options? }]"
+            ]
+          ]
+        },
+        {
+          "type": "code",
+          "lang": "sh",
+          "text": "curl -X POST http://localhost:4000/emit \\\n  -H 'Content-Type: application/json' \\\n  -H 'Authorization: Bearer my-secret-token' \\\n  -d '{\"event\": \"email.send\", \"data\": {\"to\": \"leo@example.com\"}}'"
+        }
+      ]
+    },
+    {
+      "id": "management-endpoints",
+      "heading": "Management endpoints",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Available when a HoundManagement instance is passed to the gateway:"
+        },
+        {
+          "type": "table",
+          "headers": ["Method", "Path", "Description"],
+          "rows": [
+            ["GET", "/management/jobs", "List jobs (query: queue, status)"],
+            ["GET", "/management/jobs/:queue/:jobId", "Get a single job"],
+            ["DELETE", "/management/jobs/:queue/:jobId", "Delete a job"],
+            ["POST", "/management/jobs/:queue/:jobId/pause", "Pause a job"],
+            ["POST", "/management/jobs/:queue/:jobId/resume", "Resume a job"],
+            [
+              "POST",
+              "/management/jobs/:queue/:jobId/promote",
+              "Promote a delayed job"
+            ],
+            [
+              "POST",
+              "/management/jobs/:queue/:jobId/retry",
+              "Retry a failed job"
+            ],
+            ["GET", "/management/queues", "List all queues"],
+            ["GET", "/management/queues/:queue/stats", "Get queue stats"],
+            ["POST", "/management/queues/:queue/pause", "Pause a queue"],
+            ["POST", "/management/queues/:queue/resume", "Resume a queue"],
+            ["POST", "/management/queues/:queue/reset", "Reset (flush) a queue"]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "auth",
+      "heading": "Authentication",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Set the auth option on Hound.create() to require a Bearer token on all gateway requests:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "const hound = Hound.create({\n  db: redis,\n  auth: Deno.env.get('HOUND_TOKEN'),\n});"
+        },
+        {
+          "type": "p",
+          "text": "Clients must include the token in the Authorization header:"
+        },
+        {
+          "type": "code",
+          "lang": "sh",
+          "text": "Authorization: Bearer <token>"
+        },
+        {
+          "type": "warning",
+          "text": "Without auth, any service that can reach the gateway port can emit jobs and access management endpoints."
+        }
+      ]
+    },
+    {
+      "id": "generated-client",
+      "heading": "Generated TypeScript client",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Hound can generate a typed TypeScript client from your registered job definitions. The client wraps the HTTP gateway and provides the same type safety as direct hound.emit() calls:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "import { generateClient } from 'hound/';\n\n// Run once to generate the client file\nawait generateClient(hound, {\n  outputPath: './gen/hound-client.ts',\n  gatewayUrl: 'http://localhost:4000',\n  token: Deno.env.get('HOUND_TOKEN'),\n});"
+        },
+        {
+          "type": "p",
+          "text": "The generated client is self-contained — no Hound or Redis dependency. Import it anywhere to emit jobs over HTTP:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "import { houndClient } from './gen/hound-client.ts';\n\nawait houndClient.emit('email.send', { to: 'leo@example.com' });"
+        }
+      ]
+    }
+  ]
+}

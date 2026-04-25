@@ -3,8 +3,12 @@
  *
  * @module
  */
-import { HandlerOptions, JobDefinition, JobHandler } from './types/index.ts';
-import type { EmitOptions } from './types/index.ts';
+import type {
+  EmitOptions,
+  HandlerOptions,
+  JobDefinition,
+  JobHandler,
+} from './types/index.ts';
 import type { Hound } from './libs/hound/mod.ts';
 
 /**
@@ -34,11 +38,50 @@ export function defineJob<
 
 export { Hound } from './libs/hound/mod.ts';
 export { HoundManagement } from './libs/hound-management/mod.ts';
+export type {
+  FindJobsOptions,
+  HoundManagementOptions,
+  JobFinishedPayload,
+  JobRecord,
+  QueueRecord,
+  QueueStats,
+} from './libs/hound-management/mod.ts';
 export { InMemoryStorage } from './libs/storage/in-memory.ts';
 export { DenoKvStorage } from './libs/storage/deno-kv.ts';
-export { generateTypes, generateClient } from './libs/codegen/mod.ts';
-export type { CodegenOptions, ClientgenOptions } from './libs/codegen/mod.ts';
-export type { JobDefinition, EmitOptions } from './types/index.ts';
+export { generateClient, generateTypes } from './libs/codegen/mod.ts';
+export type { ClientgenOptions, CodegenOptions } from './libs/codegen/mod.ts';
+export { createGateway } from './libs/gateways/gateway.ts';
+export type { GatewayOptions } from './libs/gateways/gateway.ts';
+
+// ─── Core types ───────────────────────────────────────────────────────────────
+export type {
+  // Benchmarking
+  BenchmarkOptions,
+  BenchmarkResult,
+  DlqConfig,
+  EmitAndWaitFunction,
+  EmitAsyncFunction,
+  // Emit function shapes
+  EmitFunction,
+  EmitOptions,
+  // Handlers
+  HandlerOptions,
+  // Hound options
+  HoundOptions,
+  JobContext,
+  JobDefinition,
+  JobError,
+  JobHandler,
+  // Job data (dashboard / log display)
+  JobLog,
+  JobSocketContext,
+  RedisConnection,
+  RepeatOptions,
+  // Processor config
+  RetryConfig,
+  // Storage
+  StorageClient,
+} from './types/index.ts';
 
 // ─── Typed emit helpers ───────────────────────────────────────────────────────
 

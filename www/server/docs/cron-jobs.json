@@ -1,0 +1,81 @@
+{
+  "slug": "cron-jobs",
+  "title": "Cron & Repeat",
+  "description": "Schedule recurring jobs with cron expressions",
+  "sections": [
+    {
+      "id": "overview",
+      "heading": "Overview",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Hound supports recurring jobs via the repeat.pattern option. A cron expression makes a job self-schedule — after each successful execution, Hound re-enqueues it for the next occurrence automatically."
+        }
+      ]
+    },
+    {
+      "id": "define-repeat",
+      "heading": "Defining a recurring job",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Set repeat.pattern on a handler registration or a JobDefinition to enable cron scheduling:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "hound.on(\n  'report.daily',\n  async (ctx) => {\n    await generateDailyReport();\n  },\n  {\n    repeat: { pattern: '0 6 * * *' }, // every day at 06:00\n  }\n);"
+        },
+        {
+          "type": "tip",
+          "text": "The first execution is scheduled when hound.start() is called. Subsequent executions are scheduled automatically after each completion."
+        }
+      ]
+    },
+    {
+      "id": "cron-syntax",
+      "heading": "Cron syntax",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Hound uses standard 5-field cron expressions:"
+        },
+        {
+          "type": "code",
+          "lang": "text",
+          "text": "┌───────────── minute (0–59)\n│ ┌─────────── hour (0–23)\n│ │ ┌───────── day of month (1–31)\n│ │ │ ┌─────── month (1–12)\n│ │ │ │ ┌───── day of week (0–7, Sunday is 0 or 7)\n│ │ │ │ │\n* * * * *"
+        },
+        {
+          "type": "table",
+          "headers": ["Pattern", "Meaning"],
+          "rows": [
+            ["* * * * *", "Every minute"],
+            ["0 * * * *", "Every hour"],
+            ["0 9 * * 1-5", "Weekdays at 09:00"],
+            ["0 0 1 * *", "First day of every month"],
+            ["*/15 * * * *", "Every 15 minutes"]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emit-with-repeat",
+      "heading": "Per-emit repeat",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "You can also set a repeat pattern at emit time rather than at handler registration. This is useful for per-user or per-tenant scheduled jobs:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "await hound.emitAsync('report.generate', { userId: 'u_123' }, {\n  id: `report-weekly-u_123`, // stable ID prevents duplicates on restart\n  repeat: { pattern: '0 8 * * 1' }, // every Monday at 08:00\n});"
+        },
+        {
+          "type": "warning",
+          "text": "Always use a stable custom ID with per-emit repeat jobs. Without a fixed ID, each restart would enqueue an additional recurring job instance."
+        }
+      ]
+    }
+  ]
+}

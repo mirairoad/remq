@@ -1,0 +1,114 @@
+{
+  "slug": "management",
+  "title": "Management API",
+  "description": "Inspect, retry, pause, and delete jobs and queues programmatically",
+  "sections": [
+    {
+      "id": "overview",
+      "heading": "Overview",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "HoundManagement provides a programmatic interface to inspect and control jobs and queues. It uses the same storage backend as Hound and can be used standalone or alongside a running instance."
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "import { Hound, HoundManagement } from 'hound/';\n\nconst hound = Hound.create({ db: redis });\nconst mgmt = new HoundManagement({ db: redis, hound });"
+        }
+      ]
+    },
+    {
+      "id": "jobs-api",
+      "heading": "Jobs API",
+      "blocks": [
+        { "type": "p", "text": "Access job management through mgmt.api.jobs:" },
+        {
+          "type": "table",
+          "headers": ["Method", "Description"],
+          "rows": [
+            [
+              "find(options?)",
+              "List all jobs, optionally filtered by queue or status"
+            ],
+            ["get('queue:jobId')", "Fetch a single job record"],
+            ["delete('queue:jobId')", "Remove a job and all its state keys"],
+            [
+              "promote('queue:jobId')",
+              "Fire a delayed or waiting job immediately"
+            ],
+            [
+              "pause('queue:jobId')",
+              "Freeze a job by pushing its delay to max"
+            ],
+            ["resume('queue:jobId')", "Unfreeze a paused job"],
+            ["retry('queue:jobId')", "Re-enqueue a failed job"]
+          ]
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "// Find all failed jobs in the emails queue\nconst failed = await mgmt.api.jobs.find({ queue: 'emails', status: 'failed' });\n\n// Retry each one\nfor (const job of failed) {\n  await mgmt.api.jobs.retry(`${job.queue}:${job.id}`);\n}"
+        }
+      ]
+    },
+    {
+      "id": "queues-api",
+      "heading": "Queues API",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Access queue management through mgmt.api.queues:"
+        },
+        {
+          "type": "table",
+          "headers": ["Method", "Description"],
+          "rows": [
+            ["find()", "List all queues with name, paused flag, and length"],
+            [
+              "stats('queueName')",
+              "Get waiting / delayed / processing / completed / failed counts"
+            ],
+            [
+              "pause('queueName')",
+              "Stop the processor from claiming new jobs from this queue"
+            ],
+            ["resume('queueName')", "Resume processing for a paused queue"],
+            [
+              "reset('queueName')",
+              "Destructive: flush all jobs and state from the queue"
+            ],
+            [
+              "running('queueName')",
+              "Returns true if the queue is currently active"
+            ]
+          ]
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "const stats = await mgmt.api.queues.stats('emails');\nconsole.log(stats);\n// { waiting: 12, delayed: 3, processing: 2, completed: 840, failed: 1, total: 858 }"
+        },
+        {
+          "type": "warning",
+          "text": "reset() is destructive and irreversible. It removes all jobs in the queue including completed and failed records."
+        }
+      ]
+    },
+    {
+      "id": "events",
+      "heading": "Job events",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Subscribe to real-time job completion events via mgmt.events.job. Each subscription returns an unsubscribe function:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "// Subscribe to all terminal events\nconst off = mgmt.events.job.finished((payload) => {\n  console.log(payload.jobId, payload.status);\n});\n\n// Subscribe to failures only\nmgmt.events.job.failed((payload) => {\n  alertTeam(`Job ${payload.jobId} failed: ${payload.error}`);\n});\n\n// Unsubscribe later\noff();"
+        }
+      ]
+    }
+  ]
+}

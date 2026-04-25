@@ -1,5 +1,78 @@
 # Changelog
 
+## [0.50.0] - 2026-04-25
+
+### Breaking Changes
+
+- `expose` option removed from `HoundOptions` — use `hound.listen()` instead
+- `hound.listen()` is now the single way to start the HTTP gateway
+
+### Added
+
+#### `hound.listen()`
+
+New method to start the HTTP gateway with optional management routes. Replaces the `expose` constructor option. Can be called before or after `hound.start()`. Returns `this`.
+
+```ts
+hound.listen(4000);
+hound.listen('0.0.0.0', 4000);
+hound.listen(4000, management);
+hound.listen(4000, management, (addr) => console.log(addr.port));
+```
+
+#### Management API — new methods
+
+- `jobs.find({ queue?, status? })` — filter by queue and/or status
+- `jobs.retry(key)` — re-enqueue a failed job (requires Hound instance)
+- `jobs.resume(key)` — unfreeze a paused job (counterpart to `jobs.pause()`)
+- `queues.stats(key)` — per-status job counts: `{ waiting, delayed, processing, completed, failed, total }`
+
+#### HTTP Management REST API
+
+All management operations now available over HTTP when `management` is passed to `listen()`:
+
+```
+GET    /management/jobs[?queue=&status=]
+GET    /management/jobs/:queue/:jobId
+DELETE /management/jobs/:queue/:jobId
+POST   /management/jobs/:queue/:jobId/pause|resume|promote|retry
+GET    /management/queues
+GET    /management/queues/:queue/stats
+POST   /management/queues/:queue/pause|resume|reset
+```
+
+#### Generated `HoundClient.management`
+
+`generateClient()` now emits `ManagementJobsClient` and `ManagementQueuesClient` classes on `client.management.jobs.*` and `client.management.queues.*`. Dashboard clients get full typed access to all management operations without any extra setup.
+
+#### `createGateway` exported
+
+`createGateway` and `GatewayOptions` are now part of the public API — use for standalone gateway setup outside of a Hound instance.
+
+#### Complete public API surface
+
+All previously missing types are now exported from the main package:
+`HoundOptions`, `HandlerOptions`, `JobContext`, `JobHandler`, `RepeatOptions`, `JobLog`, `JobError`, `JobSocketContext`, `RetryConfig`, `DlqConfig`, `EmitFunction`, `EmitAsyncFunction`, `EmitAndWaitFunction`, `BenchmarkOptions`, `BenchmarkResult`, `StorageClient`, `RedisConnection`, `GatewayOptions`.
+
+### Fixed
+
+- `jobs.delete()` always returned `true` for any valid key format — now correctly returns `false` when no state keys exist in Redis
+
+### Migration from 0.49.4
+
+**Replace `expose` with `listen()`:**
+
+```ts
+// Before
+const hound = Hound.create({ db, expose: 4000 });
+
+// After
+const management = new HoundManagement({ db, hound });
+hound.listen(4000, management); // call after Hound.create, before or after start()
+```
+
+---
+
 ## [0.49.4] - 2026-04-25
 
 ### Summary
@@ -10,8 +83,8 @@ Redis Streams replaced with Redis sorted-set (`ZADD`) queues. `Remq` renamed to 
 
 ### Breaking Changes
 
-- `Remq` renamed to `Hound` — `import { Hound } from '@hushkey/remq'`
-- `RemqManagement` renamed to `HoundManagement` — now exported from main `@hushkey/remq` package
+- `Remq` renamed to `Hound` — `import { Hound } from '@hushkey/hound'`
+- `RemqManagement` renamed to `HoundManagement` — now exported from main `@hushkey/hound` package
 - `streamdb` option removed — only `db` is required
 - `processor.streamPriority` renamed to `processor.queuePriority`
 - `processor.read.count` and `processor.read.blockMs` removed (stream-specific options)
@@ -67,12 +140,12 @@ Redis Streams replaced with Redis sorted-set (`ZADD`) queues. `Remq` renamed to 
 
 ```ts
 // Before
-import { Remq, RemqManagement } from '@hushkey/remq';
+import { Remq, RemqManagement } from '@hushkey/hound';
 const remq = Remq.create({ db, streamdb });
 const management = new RemqManagement({ db, streamdb, remq });
 
 // After
-import { Hound, HoundManagement } from '@hushkey/remq';
+import { Hound, HoundManagement } from '@hushkey/hound';
 const hound = Hound.create({ db });
 const management = new HoundManagement({ db, hound });
 ```

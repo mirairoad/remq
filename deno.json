@@ -4,9 +4,10 @@
     "examples/",
     "www/"
   ],
+  "nodeModulesDir": "auto",
   "tasks": {
-    "dev": "deno run -A --allow-scripts --watch examples/index.ts",
-    "start": "deno run -A --allow-scripts examples/index.ts"
-  },
-  "nodeModulesDir": "auto"
+    "dev:www": "deno run -A --watch --watch-exclude=www/dist/,www/node_modules/ www/dev.ts",
+    "build:www": "deno run -A www/dev.ts build",
+    "clean:www": "rm -rf www/node_modules www/dist && deno install"
+  }
 }

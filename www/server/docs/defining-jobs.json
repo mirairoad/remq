@@ -1,0 +1,98 @@
+{
+  "slug": "defining-jobs",
+  "title": "Defining Jobs",
+  "description": "Type-safe job definitions with defineJob()",
+  "sections": [
+    {
+      "id": "overview",
+      "heading": "Overview",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Jobs can be registered inline with hound.on() or defined as reusable JobDefinition objects using defineJob(). The defineJob() approach colocates the handler with its data shape, queue config, and retry options — and provides full TypeScript inference across your app."
+        }
+      ]
+    },
+    {
+      "id": "define-job",
+      "heading": "defineJob()",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Call defineJob() with an event name and a handler. The second generic parameter types the ctx.data payload:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "filename": "jobs/email.job.ts",
+          "text": "import { defineJob } from 'hound/';\n\nexport const sendEmailJob = defineJob<App, { to: string; subject: string }>(\n  'email.send',\n  async (ctx) => {\n    // ctx.data is typed: { to: string; subject: string }\n    await sendEmail(ctx.data);\n  },\n  {\n    queue: 'emails',\n    concurrency: 5,\n    attempts: 3,\n    retryBackoff: 'exponential',\n  }\n);"
+        },
+        {
+          "type": "p",
+          "text": "Pass the definition to hound.on() to register it:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "filename": "main.ts",
+          "text": "import { sendEmailJob } from './jobs/email.job.ts';\n\nhound.on(sendEmailJob);\nawait hound.start();"
+        }
+      ]
+    },
+    {
+      "id": "handler-options",
+      "heading": "Handler options",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Both hound.on() and defineJob() accept the same options object:"
+        },
+        {
+          "type": "table",
+          "headers": ["Option", "Type", "Description"],
+          "rows": [
+            ["queue", "string", "Queue name (default: 'default')"],
+            [
+              "concurrency",
+              "number",
+              "Max simultaneous executions for this handler"
+            ],
+            ["attempts", "number", "Max attempts including retries"],
+            ["retryDelayMs", "number", "Delay between retries in milliseconds"],
+            ["retryBackoff", "'fixed' | 'exponential'", "Backoff strategy"],
+            [
+              "debounce",
+              "number",
+              "Debounce window in ms — collapses repeated emits"
+            ],
+            [
+              "repeat.pattern",
+              "string",
+              "Cron expression to self-schedule the job"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "auto-discovery",
+      "heading": "Auto-discovery",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Set jobDirs in HoundOptions to auto-register all *.job.ts files on startup. Any file that exports a JobDefinition as a default or named export will be picked up automatically:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "filename": "main.ts",
+          "text": "const hound = Hound.create({\n  db: redis,\n  importMeta: import.meta,\n  jobDirs: ['./jobs'],\n});\n\nawait hound.start(); // walks ./jobs and registers all *.job.ts"
+        },
+        {
+          "type": "tip",
+          "text": "Auto-discovery eliminates the need to manually import and register every job file. Export a JobDefinition from any *.job.ts and it will be picked up on start."
+        }
+      ]
+    }
+  ]
+}

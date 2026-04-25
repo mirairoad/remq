@@ -9,6 +9,7 @@ import { DebounceManager } from '../processor/debounce-manager.ts';
 import { QueueStore } from '../consumer/queue-store.ts';
 import { Reaper } from '../consumer/reaper.ts';
 import { createGateway } from '../gateways/gateway.ts';
+import type { HoundManagement } from '../hound-management/mod.ts';
 import { debug } from '../../utils/logger.ts';
 import type {
   BenchmarkOptions,
@@ -88,7 +89,7 @@ export class Hound<
   private queues: Set<string> = new Set();
   private isStarted = false;
   private shutdownRegistered = false;
-  private readonly expose?: number;
+  private readonly signalHandlers = new Map<string, () => void>();
   private readonly auth?: string;
   private server?: ReturnType<typeof createGateway>;
 
@@ -128,7 +129,6 @@ export class Hound<
       emitAndWait: this.emitAndWait.bind(this),
     } as TApp & { emit: EmitFunction; emitAsync: EmitAsyncFunction; emitAndWait: EmitAndWaitFunction };
 
-    this.expose = options.expose;
     this.auth = options.auth;
     this.importMeta = options.importMeta;
     this.jobDirs = options.jobDirs;
@@ -345,15 +345,19 @@ export class Hound<
   }
 
   async benchmark(config: BenchmarkOptions): Promise<BenchmarkResult> {
-    const { totalJobs, simulatedWorkMs = 0, concurrency = 10, timeoutMs = 30_000 } = config;
+    const { totalJobs, simulatedWorkMs = 0, timeoutMs = 30_000 } = config;
     const BENCH_EVENT = '__hound.benchmark__';
     const BENCH_QUEUE = 'default';
     const handlerKey = `${BENCH_QUEUE}:${BENCH_EVENT}`;
 
     const needsRestart = !this.queues.has(BENCH_QUEUE);
-    this.on(BENCH_EVENT, async () => {
+
+    const e2eLatencies: number[] = [];
+    this.on(BENCH_EVENT, async (ctx) => {
       if (simulatedWorkMs > 0) await new Promise<void>((r) => setTimeout(r, simulatedWorkMs));
+      e2eLatencies.push(Date.now() - ctx.enqueuedAt);
     });
+
     if (needsRestart) {
       this.isStarted = false;
       await this.start();
@@ -361,27 +365,50 @@ export class Hound<
 
     this.#ensureJobWaiterListener();
 
-    const latencies: number[] = [];
-    const startTime = performance.now();
-    let jobIndex = 0;
+    // Warm up: register waiter → emitAsync → await, so the job is guaranteed
+    // in the queue before we wait. This primes the consumer out of its initial
+    // idle poll-sleep before any timed work begins.
+    const warmupId = `__bench__warmup__${crypto.randomUUID()}`;
+    const warmupDone = new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.#jobWaiters.delete(warmupId);
+        reject(new Error('Benchmark warm-up timed out'));
+      }, timeoutMs);
+      this.#jobWaiters.set(warmupId, { resolve, reject, timer });
+    });
+    await this.emitAsync(BENCH_EVENT, { simulatedWorkMs }, { queue: BENCH_QUEUE, id: warmupId });
+    await warmupDone;
 
-    await Promise.all(
-      Array.from({ length: concurrency }, async () => {
-        while (true) {
-          const i = jobIndex++;
-          if (i >= totalJobs) break;
-          const id = `__bench__${i}__${crypto.randomUUID()}`;
-          const t = performance.now();
-          await this.emitAndWait(BENCH_EVENT, { simulatedWorkMs }, { queue: BENCH_QUEUE, id, timeoutMs });
-          latencies.push(performance.now() - t);
-        }
-      }),
+    // Register waiters before emitting so no job-finished events are missed.
+    const jobIds = Array.from(
+      { length: totalJobs },
+      (_, i) => `__bench__${i}__${crypto.randomUUID()}`,
+    );
+    const waitPromises = jobIds.map((id) =>
+      new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.#jobWaiters.delete(id);
+          reject(new Error(`Job ${id} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        this.#jobWaiters.set(id, { resolve, reject, timer });
+      })
     );
 
+    // Emit all jobs concurrently — queue everything before timing starts.
+    await Promise.all(
+      jobIds.map((id) =>
+        this.emitAsync(BENCH_EVENT, { simulatedWorkMs }, { queue: BENCH_QUEUE, id })
+      ),
+    );
+
+    // All jobs are now in the queue. Time only the drain phase.
+    const startTime = performance.now();
+    await Promise.all(waitPromises);
     const durationMs = performance.now() - startTime;
+
     this.handlers.delete(handlerKey);
 
-    const sorted = [...latencies].sort((a, b) => a - b);
+    const sorted = [...e2eLatencies].sort((a, b) => a - b);
     const n = sorted.length;
     const result: BenchmarkResult = {
       totalJobs: n,
@@ -393,7 +420,7 @@ export class Hound<
         p50: sorted[Math.floor(n * 0.5)] ?? 0,
         p95: sorted[Math.floor(n * 0.95)] ?? 0,
         p99: sorted[Math.floor(n * 0.99)] ?? 0,
-        avg: latencies.reduce((s, l) => s + l, 0) / n,
+        avg: e2eLatencies.reduce((s: number, l: number) => s + l, 0) / n,
       },
     };
 
@@ -403,7 +430,7 @@ ${'─'.repeat(40)}
   Total:      ${result.totalJobs} jobs
   Duration:   ${(result.durationMs / 1000).toFixed(2)}s
   Throughput: ${result.throughput.toFixed(2)} jobs/s
-  Latency:
+  E2E latency (emit → done):
     min: ${result.latency.min.toFixed(2)}ms
     p50: ${result.latency.p50.toFixed(2)}ms
     p95: ${result.latency.p95.toFixed(2)}ms
@@ -597,10 +624,7 @@ ${'─'.repeat(40)}
     this.isStarted = true;
     this.#setupGracefulShutdown();
 
-    if (this.expose != null) {
-      this.server = createGateway({ port: this.expose, hound: this, auth: this.auth });
-      debug(`Hound HTTP gateway listening on 0.0.0.0:${this.expose}`);
-    }
+
 
     const queueList = Array.from(this.queues).join(', ');
     debug(`Hound started with ${this.queues.size} queue(s) [${queueList}] and concurrency ${this.concurrency}`);
@@ -609,7 +633,66 @@ ${'─'.repeat(40)}
 
   // ─── Stop / drain ─────────────────────────────────────────────────────────
 
+  // ─── listen() overloads ────────────────────────────────────────────────────
+
+  /** Start the HTTP gateway on the given port (hostname defaults to 0.0.0.0). */
+  listen(port: number, onListen?: (addr: Deno.NetAddr) => void): this;
+  listen(port: number, management: HoundManagement | null, onListen?: (addr: Deno.NetAddr) => void): this;
+  listen(hostname: string, port: number, onListen?: (addr: Deno.NetAddr) => void): this;
+  listen(hostname: string, port: number, management: HoundManagement | null, onListen?: (addr: Deno.NetAddr) => void): this;
+
+  listen(
+    hostnameOrPort: string | number,
+    portOrManagementOrCb?: number | HoundManagement | null | ((addr: Deno.NetAddr) => void),
+    managementOrCb?: HoundManagement | null | ((addr: Deno.NetAddr) => void),
+    onListen?: (addr: Deno.NetAddr) => void,
+  ): this {
+    let hostname = '0.0.0.0';
+    let port: number;
+    let management: HoundManagement | undefined;
+    let cb: ((addr: Deno.NetAddr) => void) | undefined;
+
+    if (typeof hostnameOrPort === 'string') {
+      hostname = hostnameOrPort;
+      port = portOrManagementOrCb as number;
+      if (typeof managementOrCb === 'function') {
+        cb = managementOrCb;
+      } else {
+        management = managementOrCb ?? undefined;
+        cb = onListen;
+      }
+    } else {
+      port = hostnameOrPort;
+      if (typeof portOrManagementOrCb === 'function') {
+        cb = portOrManagementOrCb;
+      } else {
+        management = (portOrManagementOrCb as HoundManagement | null | undefined) ?? undefined;
+        cb = typeof managementOrCb === 'function' ? managementOrCb : undefined;
+      }
+    }
+
+    this.server?.shutdown();
+    this.server = createGateway({ hostname, port, hound: this, auth: this.auth, management, onListen: cb });
+    return this;
+  }
+
   async stop(): Promise<void> {
+    // Cancel all pending emitAndWait timers — avoids leaked timers in tests
+    for (const [, waiter] of this.#jobWaiters) {
+      clearTimeout(waiter.timer);
+      waiter.reject(new Error('Hound stopped'));
+    }
+    this.#jobWaiters.clear();
+
+    // Unregister OS signal listeners so they don't leak across test boundaries
+    if (typeof Deno !== 'undefined') {
+      for (const [signal, handler] of this.signalHandlers) {
+        try { Deno.removeSignalListener(signal as 'SIGINT' | 'SIGTERM', handler); } catch { /* ignore */ }
+      }
+    }
+    this.signalHandlers.clear();
+    this.shutdownRegistered = false;
+
     this.reaper?.stop();
     this.reaper = undefined;
 
@@ -789,6 +872,7 @@ ${'─'.repeat(40)}
         status: 'processing',
         retryCount: jobEntry.retryCount ?? 0,
         retriedAttempts: jobEntry.retriedAttempts ?? 0,
+        enqueuedAt: jobEntry.timestamp,
         data: jobEntry.state.data,
         logger: jobEntry.logger,
         emit: this.emit.bind(this),
@@ -940,10 +1024,14 @@ ${'─'.repeat(40)}
     };
 
     if (typeof Deno !== 'undefined') {
+      const onSigint = () => shutdown('SIGINT');
+      const onSigterm = () => shutdown('SIGTERM');
+      this.signalHandlers.set('SIGINT', onSigint);
+      this.signalHandlers.set('SIGTERM', onSigterm);
       // @ts-ignore
-      Deno.addSignalListener('SIGINT', () => shutdown('SIGINT'));
+      Deno.addSignalListener('SIGINT', onSigint);
       // @ts-ignore
-      Deno.addSignalListener('SIGTERM', () => shutdown('SIGTERM'));
+      Deno.addSignalListener('SIGTERM', onSigterm);
     } else if (typeof process !== 'undefined') {
       // @ts-ignore
       process.on('SIGINT', () => shutdown('SIGINT'));

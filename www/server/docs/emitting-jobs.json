@@ -1,0 +1,116 @@
+{
+  "slug": "emitting-jobs",
+  "title": "Emitting Jobs",
+  "description": "Fire-and-forget, awaitable, and blocking emission patterns",
+  "sections": [
+    {
+      "id": "overview",
+      "heading": "Overview",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Hound exposes three emission methods depending on how much you need to know about a job's fate:"
+        },
+        {
+          "type": "table",
+          "headers": ["Method", "Returns", "Waits for"],
+          "rows": [
+            ["emit()", "string (jobId)", "Nothing — fire and forget"],
+            ["emitAsync()", "Promise<string>", "Job to be written to storage"],
+            [
+              "emitAndWait()",
+              "Promise<JobRecord>",
+              "Job to reach a terminal state"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emit",
+      "heading": "emit()",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "The simplest form. Returns the jobId synchronously and writes to storage in the background:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "const jobId = hound.emit('user.welcome', { email: 'leo@example.com' });\nconsole.log(jobId); // 'user.welcome-<ulid>'"
+        },
+        {
+          "type": "warning",
+          "text": "Because the write is async, the job may not be in storage yet when emit() returns. Use emitAsync() if you need to confirm it was persisted."
+        }
+      ]
+    },
+    {
+      "id": "emit-async",
+      "heading": "emitAsync()",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Awaits both the state key and queue write before resolving. Use this when you need to confirm the job exists in storage before continuing:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "const jobId = await hound.emitAsync('order.process', { orderId: '123' });\nconsole.log('Job persisted:', jobId);"
+        }
+      ]
+    },
+    {
+      "id": "emit-and-wait",
+      "heading": "emitAndWait()",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Emits a job and waits for it to reach a terminal state (completed or failed). Returns the final JobRecord. Rejects on failure or timeout:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "const result = await hound.emitAndWait(\n  'report.generate',\n  { reportId: 'q4-2024' },\n  { timeoutMs: 60_000 }\n);\nconsole.log(result.status); // 'completed'"
+        },
+        {
+          "type": "tip",
+          "text": "emitAndWait() defaults to a 30-second timeout. Pass timeoutMs to override."
+        }
+      ]
+    },
+    {
+      "id": "emit-options",
+      "heading": "EmitOptions",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "All three emission methods accept an options object as the third argument:"
+        },
+        {
+          "type": "table",
+          "headers": ["Option", "Type", "Description"],
+          "rows": [
+            ["id", "string", "Custom job ID (default: auto-generated ULID)"],
+            ["queue", "string", "Override the handler's default queue"],
+            ["delay", "Date", "Schedule the job for a future time"],
+            ["attempts", "number", "Max attempts including retries"],
+            ["retryDelayMs", "number", "Delay between retries"],
+            ["retryBackoff", "'fixed' | 'exponential'", "Backoff strategy"],
+            [
+              "priority",
+              "number",
+              "Lower number = higher priority within the queue"
+            ],
+            ["repeat.pattern", "string", "Cron expression for self-scheduling"]
+          ]
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "// Schedule a job for tomorrow\nhound.emit('report.weekly', {}, {\n  delay: new Date(Date.now() + 86_400_000),\n  attempts: 3,\n  retryBackoff: 'exponential',\n});\n\n// Idempotent emit with a fixed ID\nawait hound.emitAsync('invoice.send', { invoiceId: 'INV-001' }, {\n  id: 'invoice-INV-001',\n});"
+        }
+      ]
+    }
+  ]
+}

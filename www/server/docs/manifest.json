@@ -1,0 +1,62 @@
+[
+  {
+    "slug": "getting-started",
+    "title": "Getting Started",
+    "description": "Install Hound and process your first job in minutes",
+    "order": 1
+  },
+  {
+    "slug": "defining-jobs",
+    "title": "Defining Jobs",
+    "description": "Type-safe job definitions with defineJob()",
+    "order": 2
+  },
+  {
+    "slug": "emitting-jobs",
+    "title": "Emitting Jobs",
+    "description": "Fire-and-forget, awaitable, and blocking emission patterns",
+    "order": 3
+  },
+  {
+    "slug": "handlers",
+    "title": "Handlers",
+    "description": "Writing handlers, job context, logging, and chaining",
+    "order": 4
+  },
+  {
+    "slug": "queues",
+    "title": "Queues & Concurrency",
+    "description": "Named queues, concurrency limits, priorities, and debouncing",
+    "order": 5
+  },
+  {
+    "slug": "cron-jobs",
+    "title": "Cron & Repeat",
+    "description": "Schedule recurring jobs with cron expressions",
+    "order": 6
+  },
+  {
+    "slug": "management",
+    "title": "Management API",
+    "description": "Inspect, retry, pause, and delete jobs and queues programmatically",
+    "order": 7
+  },
+  {
+    "slug": "gateway",
+    "title": "HTTP Gateway",
+    "description": "REST gateway, management endpoints, auth, and generated client",
+    "order": 8
+  },
+  {
+    "slug": "storage",
+    "title": "Storage Backends",
+    "description": "Redis, in-memory, and Deno KV adapters",
+    "order": 9
+  },
+  {
+    "slug": "configuration",
+    "title": "Configuration",
+    "description": "Full HoundOptions, processor, retry, and DLQ reference",
+    "order": 10
+  }
+]

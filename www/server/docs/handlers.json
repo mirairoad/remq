@@ -1,0 +1,123 @@
+{
+  "slug": "handlers",
+  "title": "Handlers",
+  "description": "Writing handlers, job context, logging, and chaining",
+  "sections": [
+    {
+      "id": "overview",
+      "heading": "Overview",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "A handler is an async function that receives a JobContext and performs the job's work. Handlers are registered with hound.on() or via defineJob()."
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "hound.on('user.welcome', async (ctx) => {\n  // ctx.data is typed to this handler's payload shape\n  await sendEmail(ctx.data.email);\n});"
+        }
+      ]
+    },
+    {
+      "id": "context",
+      "heading": "Job context",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Every handler receives a ctx object with the job's metadata and utilities:"
+        },
+        {
+          "type": "table",
+          "headers": ["Property", "Type", "Description"],
+          "rows": [
+            ["ctx.id", "string", "Job ID"],
+            ["ctx.name", "string", "Event name"],
+            ["ctx.queue", "string", "Queue the job is running in"],
+            ["ctx.status", "string", "Current job status"],
+            ["ctx.data", "T", "Typed payload from emit()"],
+            ["ctx.retryCount", "number", "Zero-indexed attempt number"],
+            ["ctx.retriedAttempts", "number", "Total retries attempted so far"],
+            [
+              "ctx.logger(msg)",
+              "void",
+              "Append a log message to the job record"
+            ],
+            [
+              "ctx.emit(...)",
+              "string",
+              "Emit a downstream job (fire-and-forget)"
+            ],
+            [
+              "ctx.emitAsync(...)",
+              "Promise<string>",
+              "Emit and await storage confirmation"
+            ],
+            [
+              "ctx.emitAndWait(...)",
+              "Promise<JobRecord>",
+              "Emit and await terminal state"
+            ],
+            [
+              "ctx.socket.update(data)",
+              "void",
+              "Push a WebSocket progress update"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "logging",
+      "heading": "Logging",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Call ctx.logger() to append timestamped messages to the job record. Logs are stored in the JobRecord and visible via the management API:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "hound.on('order.fulfill', async (ctx) => {\n  ctx.logger('Reserving inventory...');\n  await reserveInventory(ctx.data.items);\n\n  ctx.logger('Charging payment...');\n  await chargeCard(ctx.data.paymentToken);\n\n  ctx.logger('Sending confirmation email...');\n  await sendConfirmation(ctx.data.email);\n});"
+        },
+        {
+          "type": "tip",
+          "text": "Logs are capped at maxLogsPerJob (default: 100) to keep storage bounded."
+        }
+      ]
+    },
+    {
+      "id": "chaining",
+      "heading": "Chaining jobs",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Handlers can emit downstream jobs using ctx.emit(), ctx.emitAsync(), or ctx.emitAndWait(). These behave identically to hound.emit() but are bound to the same Hound instance automatically:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "hound.on('user.register', async (ctx) => {\n  await createUser(ctx.data);\n\n  ctx.emit('user.welcome', { email: ctx.data.email });\n  ctx.emit('analytics.track', { event: 'signup', userId: ctx.data.id });\n});"
+        }
+      ]
+    },
+    {
+      "id": "errors-retries",
+      "heading": "Errors and retries",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "If a handler throws, Hound marks the job as failed and re-enqueues it according to the retry configuration. The error message and stack are stored in the job record."
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "hound.on(\n  'payment.charge',\n  async (ctx) => {\n    if (!ctx.data.token) throw new Error('Missing payment token');\n    await stripe.charge(ctx.data);\n  },\n  { attempts: 5, retryBackoff: 'exponential', retryDelayMs: 1_000 }\n);"
+        },
+        {
+          "type": "p",
+          "text": "After all attempts are exhausted the job moves to the dead-letter queue (if configured) or remains in the failed state for inspection."
+        }
+      ]
+    }
+  ]
+}

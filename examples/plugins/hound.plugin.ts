@@ -37,7 +37,6 @@ const _hound = Hound.create({
   db,
   ctx: contextApp,
   importMeta: import.meta,
-  expose: Deno.args.includes('benchmark') ? undefined : 4000,
   concurrency: 10,
   processor: {
     pollIntervalMs: 1000,
@@ -46,10 +45,22 @@ const _hound = Hound.create({
     jobStateTtlSeconds: 604800, // 7 days
   },
   jobDirs: ['../_scheduled', '../_tasks'],
-  // outputDir: '../gen',
 });
 
 const management = new HoundManagement({ db, hound: _hound });
+
+if (!Deno.args.includes('benchmark')) {
+  _hound.listen(4000, management, (ctx) => {
+    console.log(ctx.hostname, ctx.port, ctx.transport);
+  });
+} else if (Deno.args.includes('benchmark')) {
+  await _hound.benchmark({
+    concurrency: 10,
+    simulatedWorkMs: 0,
+    totalJobs: 100,
+  });
+  Deno.exit(0);
+}
 
 export const hound = _hound as TypedHound<typeof contextApp, HoundJobMap>;
 export { management };
