@@ -9,7 +9,7 @@ WORKDIR /app
 
 COPY . .
 
-WORKDIR /app/web
+WORKDIR /app/www
 
 RUN deno task build
 
@@ -24,7 +24,7 @@ FROM denoland/deno:latest
 WORKDIR /app
 
 # Copy compiled binary from builder stage
-COPY --from=builder /app/web/dist/bin /app/bin
+COPY --from=builder /app/www/dist/bin/www /app/bin
 
 CMD ["./bin/www"]
 
