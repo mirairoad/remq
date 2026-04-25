@@ -4,7 +4,8 @@
   "tasks": {
     "dev": "deno run -A --watch --watch-exclude=dist/,node_modules/ dev.ts",
     "build": "deno run -A dev.ts build",
-    "clean": "rm -rf node_modules dist && deno install"
+    "start": "deno run -A  dist/compiled-entry.js",
+    "compile": "deno compile --output ./dist/bin/www --include dist --include static -A dist/compiled-entry.js"
   },
   "exports": "./server/main.ts",
   "imports": {
