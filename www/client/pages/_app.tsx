@@ -9,6 +9,7 @@ export default function (
       <head>
         <title>Hound</title>
         <link rel="stylesheet" href="/style.css" />
+        <link rel="icon" type="image/svg+xml" href="/logo.svg" />
       </head>
       <body f-client-nav>
         <Partial name="main">

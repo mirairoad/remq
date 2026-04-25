@@ -80,17 +80,144 @@
       "blocks": [
         {
           "type": "p",
-          "text": "Set jobDirs in HoundOptions to auto-register all *.job.ts files on startup. Any file that exports a JobDefinition as a default or named export will be picked up automatically:"
+          "text": "Instead of manually importing and calling hound.on() for every job, set jobDirs in HoundOptions and Hound will scan those directories on start() and register every *.job.ts file it finds."
         },
         {
           "type": "code",
           "lang": "ts",
-          "filename": "main.ts",
-          "text": "const hound = Hound.create({\n  db: redis,\n  importMeta: import.meta,\n  jobDirs: ['./jobs'],\n});\n\nawait hound.start(); // walks ./jobs and registers all *.job.ts"
+          "filename": "hound.plugin.ts",
+          "text": "const hound = Hound.create({\n  db: redis,\n  importMeta: import.meta, // required — used to resolve relative paths\n  jobDirs: ['../_tasks', '../_scheduled'],\n});\n\nawait hound.start();\n// ^ scans both dirs, imports every *.job.ts, and registers all exported jobs"
+        },
+        {
+          "type": "h3",
+          "text": "File naming convention"
+        },
+        {
+          "type": "p",
+          "text": "Any file whose name ends in .job.ts will be picked up. The event name is taken from the first argument of defineJob() inside the file — not from the filename. A common convention is to mirror the event name in the filename for clarity:"
+        },
+        {
+          "type": "table",
+          "headers": ["File", "Event name (from defineJob)", "Queue"],
+          "rows": [
+            ["_tasks/user-read.job.ts", "'user.read'", "'tasks'"],
+            ["_tasks/email-send.job.ts", "'email.send'", "'tasks'"],
+            ["_scheduled/daily-report.job.ts", "'daily-report'", "'scheduled'"],
+            ["_scheduled/mid-world.job.ts", "'mid-world'", "'scheduled'"]
+          ]
+        },
+        {
+          "type": "h3",
+          "text": "Directory conventions"
+        },
+        {
+          "type": "p",
+          "text": "There is no enforced structure — any directory name works. A useful pattern is to separate one-off tasks from recurring cron jobs into their own folders, for example _tasks/ and _scheduled/. The underscore prefix is a convention to signal that these folders contain infrastructure files rather than application modules."
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "filename": "_scheduled/mid-world.job.ts",
+          "text": "import { defineJob } from '@hushkey/hound';\n\nexport const midWorldJob = defineJob(\n  'mid-world',\n  async (ctx) => {\n    console.log('runs every 2 minutes');\n  },\n  {\n    queue: 'scheduled',\n    repeat: { pattern: '*/2 * * * *' },\n  },\n);"
+        },
+        {
+          "type": "h3",
+          "text": "What gets registered"
+        },
+        {
+          "type": "p",
+          "text": "Hound imports each *.job.ts file and looks for any exported value that was created with defineJob(). Both named exports and default exports are supported. You can export multiple jobs from a single file — all of them will be registered."
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "filename": "_tasks/user.job.ts",
+          "text": "// multiple jobs in one file — both get registered\nexport const userReadJob  = defineJob('user.read',  handler, { queue: 'tasks' });\nexport const userWriteJob = defineJob('user.write', handler, { queue: 'tasks' });"
         },
         {
           "type": "tip",
-          "text": "Auto-discovery eliminates the need to manually import and register every job file. Export a JobDefinition from any *.job.ts and it will be picked up on start."
+          "text": "jobDirs is also used by deno task codegen to generate the HoundJobMap type, giving you full type-safety on hound.emit() without any manual type wiring."
+        }
+      ]
+    },
+    {
+      "id": "codegen",
+      "heading": "Codegen",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Codegen reads the same jobDirs you pass to Hound.create() and produces two files: hound-types.ts (the HoundJobMap interface) and hound-client.ts (a typed HTTP client). Once generated, every hound.emit() call is fully type-checked — wrong event names or mismatched payloads are caught at compile time."
+        },
+        {
+          "type": "h3",
+          "text": "Setup"
+        },
+        {
+          "type": "p",
+          "text": "Create a dedicated plugin file and add a deno task to run it:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "filename": "plugins/codegen.plugin.ts",
+          "text": "import { generateTypes, generateClient } from 'jsr:@hushkey/hound';\n\nconst here = new URL('.', import.meta.url).pathname;\n\nawait generateTypes(\n  {\n    jobDirs: ['../_tasks', '../_scheduled'],\n    outputDir: '../gen',\n  },\n  here,\n);\n\nawait generateClient(\n  { outputDir: '../gen' },\n  here,\n);"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "filename": "deno.json",
+          "text": "{\n  \"tasks\": {\n    \"codegen\": \"deno run -A plugins/codegen.plugin.ts\"\n  }\n}"
+        },
+        {
+          "type": "h3",
+          "text": "What gets generated"
+        },
+        {
+          "type": "p",
+          "text": "Running deno task codegen produces two files. The first is HoundJobMap — a typed interface that maps every event name to its payload shape, derived from your defineJob exports:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "filename": "gen/hound-types.ts",
+          "text": "// auto-generated by hound — do not edit\n// regenerate: deno task codegen\n\nimport type { userReadJob } from '../_tasks/request.job.ts';\nimport type { midWorldJob } from '../_scheduled/mid-world.job.ts';\nimport type { JobDefinition } from 'jsr:@hushkey/hound';\n\ntype _Data<T> = T extends JobDefinition<any, infer D> ? D : never;\n\nexport interface HoundJobMap {\n  'user.read': _Data<typeof userReadJob>;   // { name: string; email: string }\n  'mid-world': _Data<typeof midWorldJob>;   // void\n}"
+        },
+        {
+          "type": "p",
+          "text": "The second file is HoundClient — a portable HTTP client wired to HoundJobMap. It can be used from any runtime (Node, Bun, browser) to emit jobs through the HTTP gateway:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "filename": "gen/hound-client.ts (excerpt)",
+          "text": "export class HoundClient {\n  async emit<K extends keyof HoundJobMap>(\n    event: K,\n    data: HoundJobMap[K],\n    options?: EmitOptions,\n  ): Promise<string> { ... }\n\n  async emitBatch(jobs: EmitBatchJob[]): Promise<string[]> { ... }\n\n  readonly management: {\n    jobs: { find, get, delete, pause, resume, retry, promote };\n    queues: { find, stats, pause, resume, reset };\n  };\n}"
+        },
+        {
+          "type": "h3",
+          "text": "Using the generated client"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "filename": "api/route.ts",
+          "text": "import { HoundClient } from '../gen/hound-client.ts';\n\nconst hound = new HoundClient('http://localhost:3000', {\n  auth: Deno.env.get('HOUND_TOKEN'),\n});\n\n// TypeScript enforces the payload shape — 'user.read' requires { name, email }\nawait hound.emit('user.read', { name: 'Alice', email: 'alice@example.com' });\n\n// Type error — 'unknown-event' is not in HoundJobMap\nawait hound.emit('unknown-event', {});"
+        },
+        {
+          "type": "h3",
+          "text": "Why run codegen"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Catch typos in event names at compile time, not at runtime",
+            "Payload types are inferred directly from your defineJob<App, Payload> generics — no duplication",
+            "The generated client works anywhere: other Deno services, Node backends, or browser frontends",
+            "Re-run after adding or renaming any *.job.ts file to keep types in sync"
+          ]
+        },
+        {
+          "type": "warning",
+          "text": "The generated files are derived from source — commit them but do not edit them by hand. Add // @generated or similar if your linter would otherwise flag them."
         }
       ]
     }

@@ -1,5 +1,78 @@
 # Changelog
 
+## [0.50.1] - 2026-04-25
+
+### Added
+
+#### Auto-discovery (`jobDirs`)
+
+Hound can now scan directories for `*.job.ts` files and register all exported `defineJob` definitions automatically on `start()`. No manual imports or `hound.on()` calls needed.
+
+```ts
+const hound = Hound.create({
+  db,
+  importMeta: import.meta,
+  jobDirs: ['../_tasks', '../_scheduled'],
+});
+
+await hound.start(); // registers every *.job.ts in both dirs
+```
+
+- `importMeta` is required when `jobDirs` is set — used to resolve relative paths
+- Both named and default exports are supported; multiple jobs per file are all registered
+- The same `jobDirs` list is consumed by `generateTypes()` during codegen
+
+#### Codegen — `generateTypes()` and `generateClient()`
+
+New top-level exports. Scan `jobDirs` at build time and emit two files:
+
+**`hound-types.ts`** — `HoundJobMap` interface mapping every event name to its payload type, inferred directly from `defineJob<App, Payload>` generics. No manual type wiring.
+
+**`hound-client.ts`** — portable `HoundClient` class (zero runtime deps) that hits the HTTP gateway. Typed via `HoundJobMap` — wrong event names and mismatched payloads are compile-time errors. Works from any runtime: Deno, Node, Bun, browser.
+
+```ts
+import { generateTypes, generateClient } from 'jsr:@hushkey/hound';
+
+const here = new URL('.', import.meta.url).pathname;
+
+await generateTypes({ jobDirs: ['../_tasks', '../_scheduled'], outputDir: '../gen' }, here);
+await generateClient({ outputDir: '../gen' }, here);
+```
+
+```ts
+// gen/hound-types.ts (auto-generated)
+export interface HoundJobMap {
+  'user.read':  { name: string; email: string };
+  'mid-world':  void;
+}
+```
+
+`HoundClient` also exposes the full management API:
+
+```ts
+const client = new HoundClient('http://localhost:3000', { auth: token });
+
+await client.emit('user.read', { name: 'Alice', email: 'alice@example.com' });
+await client.management.jobs.find({ status: 'failed' });
+await client.management.queues.stats('payments');
+```
+
+### Performance
+
+Updated benchmark with 99,999 jobs and concurrency 10,000 (`pollIntervalMs: 0`):
+
+| Metric      | InMemoryStorage  | Redis (local) |
+| ----------- | ---------------- | ------------- |
+| Throughput  | ~34,000 jobs/sec | ~511 jobs/sec |
+| Latency p50 | 0.29ms           | 18.18ms       |
+| Latency p95 | 0.48ms           | 29.77ms       |
+| Latency p99 | 0.61ms           | 29.94ms       |
+| Latency avg | 0.29ms           | 19.23ms       |
+
+InMemoryStorage throughput scales linearly with concurrency — the previous 4,144 jobs/sec figure was measured at concurrency 10 with 100 jobs.
+
+---
+
 ## [0.50.0] - 2026-04-25
 
 ### Breaking Changes

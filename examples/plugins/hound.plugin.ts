@@ -49,18 +49,9 @@ const _hound = Hound.create({
 
 const management = new HoundManagement({ db, hound: _hound });
 
-if (!Deno.args.includes('benchmark')) {
-  _hound.listen(4000, management, (ctx) => {
-    console.log(ctx.hostname, ctx.port, ctx.transport);
-  });
-} else if (Deno.args.includes('benchmark')) {
-  await _hound.benchmark({
-    concurrency: 10,
-    simulatedWorkMs: 0,
-    totalJobs: 100,
-  });
-  Deno.exit(0);
-}
+_hound.listen(4000, management, (ctx) => {
+  console.log(ctx.hostname, ctx.port, ctx.transport);
+});
 
 export const hound = _hound as TypedHound<typeof contextApp, HoundJobMap>;
 export { management };

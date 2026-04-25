@@ -356,6 +356,15 @@ export interface HoundOptions<
   /**
    * Directories containing `*.job.ts` files to auto-register on `start()`.
    * Resolved relative to `importMeta.url`. Also used by `deno task codegen`.
+   *
+   * Naming convention: the queue name is derived from the filename stem before `.job.ts`.
+   * Example: `payments.job.ts` → queue `"payments"`, `sync-daily.job.ts` → queue `"sync-daily"`.
+   *
+   * All matching files in each directory are imported automatically — no manual registration needed.
+   *
+   * @example
+   * jobDirs: ['../jobs', '../scheduled']
+   * // Scans both dirs and registers every *.job.ts found.
    */
   jobDirs?: string[];
   /**
