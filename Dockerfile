@@ -24,7 +24,7 @@ FROM denoland/deno:latest
 WORKDIR /app
 
 # Copy compiled binary from builder stage
-COPY --from=builder /app/www/dist/bin/www /app/bin
+COPY --from=builder /app/www/dist/bin/www /app/bin/
 
 CMD ["./bin/www"]
 
