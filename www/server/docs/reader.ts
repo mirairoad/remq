@@ -1,4 +1,14 @@
-import { join } from "@std/path";
+import manifestJson from "./manifest.json" with { type: "json" };
+import gettingStarted from "./getting-started.json" with { type: "json" };
+import definingJobs from "./defining-jobs.json" with { type: "json" };
+import emittingJobs from "./emitting-jobs.json" with { type: "json" };
+import handlers from "./handlers.json" with { type: "json" };
+import queues from "./queues.json" with { type: "json" };
+import cronJobs from "./cron-jobs.json" with { type: "json" };
+import management from "./management.json" with { type: "json" };
+import gateway from "./gateway.json" with { type: "json" };
+import storage from "./storage.json" with { type: "json" };
+import configuration from "./configuration.json" with { type: "json" };
 
 export type BlockType =
   | { type: "p"; text: string }
@@ -29,34 +39,24 @@ export interface ManifestItem {
   order: number;
 }
 
-const _selfDir = import.meta.dirname!;
+const DOC_REGISTRY: Record<string, DocPage> = {
+  "getting-started": gettingStarted as unknown as DocPage,
+  "defining-jobs": definingJobs as unknown as DocPage,
+  "emitting-jobs": emittingJobs as unknown as DocPage,
+  "handlers": handlers as unknown as DocPage,
+  "queues": queues as unknown as DocPage,
+  "cron-jobs": cronJobs as unknown as DocPage,
+  "management": management as unknown as DocPage,
+  "gateway": gateway as unknown as DocPage,
+  "storage": storage as unknown as DocPage,
+  "configuration": configuration as unknown as DocPage,
+};
 
-// Detect whether running from source (dev) or bundle (dist/).
-// In dev:  import.meta.dirname = .../server/docs/
-// In prod: import.meta.dirname = .../dist/ — go up one level then into server/docs/
-async function resolveDocsDir(): Promise<string> {
-  try {
-    await Deno.stat(join(_selfDir, "manifest.json"));
-    return _selfDir;
-  } catch {
-    return join(_selfDir, "..", "server", "docs");
-  }
+export function readManifest(): ManifestItem[] {
+  return (manifestJson as ManifestItem[]).sort((a, b) => a.order - b.order);
 }
 
-export async function readManifest(): Promise<ManifestItem[]> {
-  const dir = await resolveDocsDir();
-  const text = await Deno.readTextFile(join(dir, "manifest.json"));
-  const items: ManifestItem[] = JSON.parse(text);
-  return items.sort((a, b) => a.order - b.order);
-}
-
-export async function readDoc(slug: string): Promise<DocPage | null> {
-  const dir = await resolveDocsDir();
+export function readDoc(slug: string): DocPage | null {
   const safe = slug.replace(/[^a-z0-9-]/g, "");
-  try {
-    const text = await Deno.readTextFile(join(dir, `${safe}.json`));
-    return JSON.parse(text) as DocPage;
-  } catch {
-    return null;
-  }
+  return DOC_REGISTRY[safe] ?? null;
 }

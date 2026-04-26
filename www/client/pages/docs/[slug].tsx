@@ -233,11 +233,11 @@ function PrevNext(
   );
 }
 
-export default async function DocPage(
+export default function DocPage(
   ctx: Context<State>,
-): Promise<JSX.Element> {
+): JSX.Element {
   const { slug } = ctx.params;
-  const [doc, manifest] = await Promise.all([readDoc(slug), readManifest()]);
+  const [doc, manifest] = [readDoc(slug), readManifest()];
 
   if (!doc) {
     return ctx.redirect("/docs") as unknown as JSX.Element;

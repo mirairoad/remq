@@ -21,7 +21,7 @@ export default defineApi({
     }),
   },
   handler: async () => {
-    const items = await readManifest();
+    const items = readManifest();
     return { statusCode: 200, items };
   },
 });

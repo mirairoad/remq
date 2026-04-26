@@ -4,10 +4,10 @@ import { readManifest } from "../../../server/docs/reader.ts";
 import { Head } from "@hushkey/howl/runtime";
 import type { JSX } from "preact/jsx-runtime";
 
-export default async function DocsIndex(
+export default function DocsIndex(
   _ctx: PageProps<unknown, State>,
-): Promise<JSX.Element> {
-  const manifest = await readManifest();
+): JSX.Element {
+  const manifest = readManifest();
 
   return (
     <>

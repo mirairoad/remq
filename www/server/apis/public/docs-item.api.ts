@@ -16,7 +16,7 @@ export default defineApi({
   },
   handler: async (ctx) => {
     const { slug } = ctx.params;
-    const doc = await readDoc(slug);
+    const doc = readDoc(slug);
     if (!doc) return { statusCode: 404, error: "Not found" };
     return { statusCode: 200, doc };
   },

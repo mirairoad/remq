@@ -2,7 +2,7 @@
   "name": "@hound/docs",
   "version": "0.0.1",
   "tasks": {
-    "dev": "deno run -A --watch --watch-exclude=dist/,node_modules/ dev.ts",
+    "dev": "deno run -A --env-file='../.env' --watch --watch-exclude=dist/,node_modules/ dev.ts",
     "build": "deno run -A dev.ts build",
     "start": "deno run -A  dist/compiled-entry.js",
     "compile": "deno compile --output ./dist/bin/www --include dist --include static -A dist/compiled-entry.js"

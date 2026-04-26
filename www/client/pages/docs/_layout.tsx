@@ -3,10 +3,10 @@ import type { State } from "../../../howl.config.ts";
 import { readManifest } from "../../../server/docs/reader.ts";
 import type { JSX } from "preact/jsx-runtime";
 
-export default async function DocsLayout(
+export default function DocsLayout(
   { Component, url }: PageProps<unknown, State>,
-): Promise<JSX.Element> {
-  const manifest = await readManifest().catch(() => []);
+): JSX.Element {
+  const manifest = readManifest();
   const segments = url.pathname.replace(/\/$/, "").split("/");
   const currentSlug = segments[segments.length - 1] === "docs"
     ? ""
