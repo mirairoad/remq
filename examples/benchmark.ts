@@ -33,7 +33,7 @@ const hound = Hound.create({
 });
 
 await hound.benchmark({
-  totalJobs: 99999,
+  totalJobs: 9999,
   simulatedWorkMs: 0,
 });
 
