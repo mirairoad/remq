@@ -59,6 +59,37 @@
       ]
     },
     {
+      "id": "catch-up",
+      "heading": "catchUp — restart and recovery",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "repeat.catchUp controls what happens to a missed cron tick when the worker restarts or the Reaper resurrects a stalled cron entry. Default is false."
+        },
+        {
+          "type": "table",
+          "headers": ["Value", "Behaviour"],
+          "rows": [
+            ["false (default)", "Missed ticks are skipped; only the next natural fire runs. Use for sync, cache, prebuild — running twice is worse than skipping once."],
+            ["true", "The missed tick is fired on recovery (backfill once). Use for financial, compliance, reporting — every tick must run."]
+          ]
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "// Default — skip missed ticks\nhound.on('cache.warm', handler, {\n  repeat: { pattern: '*/5 * * * *' },\n});\n\n// Critical — backfill on recovery\nhound.on('reports.daily', handler, {\n  repeat: { pattern: '0 9 * * *', catchUp: true },\n});"
+        },
+        {
+          "type": "tip",
+          "text": "catchUp is cron-only. Setting it on a non-cron job (no repeat.pattern) throws at hound.on() and emit(). Non-cron jobs are always recovered by the Reaper."
+        },
+        {
+          "type": "p",
+          "text": "Two guards enforce the semantics: (1) the restart preflight in start() rewrites stale :delayed entries to the next natural fire when catchUp is false; (2) the consumer-side guard in #processJob skips claimed entries older than one cron interval and reschedules. The existing cron-exec lock (keyed by jobId + delayUntil) is preserved as belt-and-braces dedup against parallel claims of the same tick."
+        }
+      ]
+    },
+    {
       "id": "emit-with-repeat",
       "heading": "Per-emit repeat",
       "blocks": [

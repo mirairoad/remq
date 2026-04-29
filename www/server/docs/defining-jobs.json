@@ -69,6 +69,11 @@
               "repeat.pattern",
               "string",
               "Cron expression to self-schedule the job"
+            ],
+            [
+              "repeat.catchUp",
+              "boolean",
+              "Cron-only. If false (default), missed ticks are skipped on restart / Reaper recovery; if true, the missed tick is backfilled. Throws if set without repeat.pattern."
             ]
           ]
         }
