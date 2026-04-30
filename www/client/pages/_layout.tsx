@@ -2,6 +2,9 @@ import type { PageProps } from "@hushkey/howl";
 import type { State } from "../../howl.config.ts";
 import type { JSX } from "preact/jsx-runtime";
 
+const GITHUB_REPO = "hushkey-app/hound";
+const JSR_PACKAGE = "@hushkey/hound";
+
 let starsCache: { value: number; at: number } | null = null;
 const STARS_TTL = 5 * 60 * 1000;
 
@@ -10,7 +13,7 @@ async function getGithubStars(): Promise<number | null> {
     return starsCache.value;
   }
   try {
-    const res = await fetch("https://api.github.com/repos/mirairoad/hound", {
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}`, {
       headers: { Accept: "application/vnd.github.v3+json" },
     });
     if (!res.ok) return starsCache?.value ?? null;
@@ -23,26 +26,24 @@ async function getGithubStars(): Promise<number | null> {
 }
 
 export default async function Layout(
-  { Component, url }: PageProps<unknown, State>,
+  { Component, url, state }: PageProps<unknown, State>,
 ): Promise<JSX.Element> {
   const stars = await getGithubStars();
   const isHome = url.pathname === "/";
   const isDocs = url.pathname.startsWith("/docs");
+  const title = state.client?.title ?? "Docs";
 
   return (
-    <main>
-      {/* Top brand bar — fades from solid base-100 to transparent so content underneath stays visible while text remains legible */}
+    <main class="flex flex-col min-h-screen">
+      {/* Top brand bar */}
       <div class="fixed top-0 left-0 right-0 z-40 pointer-events-none h-20 sm:h-24 bg-linear-to-b from-base-100/95 via-base-100/70 to-transparent backdrop-blur-md mask-[linear-gradient(to_bottom,black_55%,transparent)]" />
 
       {/* Top-left brand */}
       <div class="fixed top-0 left-0 z-50 p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
-        <img src="/logo.svg" alt="Hound" class="w-11 h-11 sm:w-14 sm:h-14" />
+        <img src="/logo.svg" alt={title} class="w-11 h-11 sm:w-14 sm:h-14" />
         <div class="flex flex-col leading-none gap-1">
           <span class="font-mono font-black text-xl sm:text-2xl text-base-content/90 tracking-tight">
-            hound
-          </span>
-          <span class="font-mono text-[11px] sm:text-sm text-base-content/50 tracking-widest">
-            by hushkey
+            {title.toLowerCase()}
           </span>
         </div>
       </div>
@@ -56,7 +57,7 @@ export default async function Layout(
           {isHome ? "Docs" : "Home"}
         </a>
         <a
-          href="https://github.com/mirairoad/hound"
+          href={`https://github.com/${GITHUB_REPO}`}
           target="_blank"
           class="btn btn-ghost btn-md rounded-xl text-base text-base-content/50 hover:text-base-content hover:bg-primary/30 gap-2"
         >
@@ -68,7 +69,7 @@ export default async function Layout(
           )}
         </a>
         <a
-          href="https://jsr.io/@hushkey/hound"
+          href={`https://jsr.io/${JSR_PACKAGE}`}
           target="_blank"
           class="btn btn-ghost btn-md rounded-xl text-base text-base-content/50 hover:text-base-content hover:bg-primary/30"
         >
@@ -76,10 +77,23 @@ export default async function Layout(
         </a>
       </nav>
 
-      {/* Page content — pb-[var(--nav-h)] clears the bottom tab bar on mobile */}
-      <div class="pb-(--nav-h) sm:pb-0">
+      {/* Page content */}
+      <div class="flex-1 pb-(--nav-h) sm:pb-0">
         <Component />
       </div>
+
+      {/* Footer — entity */}
+      <footer class="bg-base-100/80 backdrop-blur pb-(--nav-h) sm:pb-0">
+        <div class="max-w-5xl mx-auto px-5 sm:px-8 py-3 flex items-center justify-between gap-1 text-left">
+          <p class="font-mono text-xs text-base-content/60">
+            &copy; {new Date().getFullYear()} {title}
+            <span class="text-primary font-bold">.</span>
+          </p>
+          <p class="font-mono text-xs text-base-content/60">
+            built with <span class="text-primary font-bold">howl</span>
+          </p>
+        </div>
+      </footer>
 
       {/* Bottom tab bar — mobile only */}
       <nav class="fixed bottom-0 left-0 right-0 z-50 sm:hidden flex items-stretch bg-base-100/98 backdrop-blur-md border-t border-base-300 safe-area-bottom">
@@ -126,7 +140,7 @@ export default async function Layout(
           <span class="font-mono text-[11px] font-bold">Docs</span>
         </a>
         <a
-          href="https://github.com/mirairoad/hound"
+          href={`https://github.com/${GITHUB_REPO}`}
           target="_blank"
           class="flex flex-col items-center justify-center gap-1 flex-1 py-2 text-base-content/50 transition-colors"
         >
@@ -136,7 +150,7 @@ export default async function Layout(
           <span class="font-mono text-[11px] font-bold">GitHub</span>
         </a>
         <a
-          href="https://jsr.io/@hushkey/hound"
+          href={`https://jsr.io/${JSR_PACKAGE}`}
           target="_blank"
           class="flex flex-col items-center justify-center gap-1 flex-1 py-2 text-base-content/50 transition-colors"
         >

@@ -1,6 +1,5 @@
 import type { Config } from "tailwindcss";
 import daisyui from "daisyui";
-// import typography from '@tailwindcss/typography';
 
 export default {
   content: [
@@ -11,10 +10,6 @@ export default {
   darkMode: ["class", '[data-theme="dark"]'],
   theme: {
     extend: {
-      // fontFamily: {
-      //   // This allows you to use 'font-global' utility classes if needed
-      //   global: ['var(--font-family)', 'sans-serif'],
-      // },
       keyframes: {
         bounceOnce: {
           "0%, 100%": { transform: "scale(1)" },

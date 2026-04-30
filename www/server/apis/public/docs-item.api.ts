@@ -1,5 +1,5 @@
-import { defineApi } from "../../../howl.config.ts";
 import { z } from "zod";
+import { defineApi } from "../../../howl.config.ts";
 import { readDoc } from "../../docs/reader.ts";
 
 export default defineApi({
@@ -14,7 +14,7 @@ export default defineApi({
     200: z.object({ doc: z.any() }),
     404: z.object({ error: z.string() }),
   },
-  handler: async (ctx) => {
+  handler: (ctx) => {
     const { slug } = ctx.params;
     const doc = readDoc(slug);
     if (!doc) return { statusCode: 404, error: "Not found" };

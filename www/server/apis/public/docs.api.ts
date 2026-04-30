@@ -1,5 +1,5 @@
-import { defineApi } from "../../../howl.config.ts";
 import { z } from "zod";
+import { defineApi } from "../../../howl.config.ts";
 import { readManifest } from "../../docs/reader.ts";
 
 export default defineApi({
@@ -20,8 +20,5 @@ export default defineApi({
       ),
     }),
   },
-  handler: async () => {
-    const items = readManifest();
-    return { statusCode: 200, items };
-  },
+  handler: () => ({ statusCode: 200, items: readManifest() }),
 });

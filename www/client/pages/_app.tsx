@@ -1,17 +1,17 @@
-import type { FunctionComponent, JSX } from "preact";
-import { Partial } from "@hushkey/howl/runtime";
+import type { JSX } from "preact/jsx-runtime";
+import type { PageProps } from "@hushkey/howl";
+import { asset, Partial } from "@hushkey/howl/runtime";
+import type { State } from "../../howl.config.ts";
 
-export default function (
-  { Component }: { Component: FunctionComponent },
-): JSX.Element {
+export default function App({ Component, state }: PageProps<unknown, State>): JSX.Element {
   return (
     <html>
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-        <title>Hound</title>
+        <title>{state.client?.title ?? "Docs"}</title>
         <link rel="stylesheet" href="/style.css" />
-        <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+        <link rel="icon" type="image/svg+xml" href={asset("/logo.svg")} />
       </head>
       <body f-client-nav>
         <Partial name="main">

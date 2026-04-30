@@ -1,4 +1,4 @@
-import { defineConfig } from "@hushkey/howl/api";
+import { defineConfig, memoryCache } from "@hushkey/howl/api";
 
 type User = {
   id: string;
@@ -16,7 +16,10 @@ export interface UserContext {
 
 export interface State {
   userContext?: UserContext;
-  text: string;
+  client: {
+    title: string;
+    version: string;
+  };
 }
 
 export const roles = [
@@ -26,4 +29,5 @@ export type Role = typeof roles[number];
 
 export const { defineApi, config: apiConfig } = defineConfig<State, Role>({
   roles,
+  cache: memoryCache({ maxSize: 1000 }),
 });
