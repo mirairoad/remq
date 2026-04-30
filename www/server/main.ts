@@ -1,7 +1,7 @@
 import { Howl, staticFiles } from "@hushkey/howl";
 import { coalesceRequests, compression } from "@hushkey/howl/middleware";
 import { apiConfig, type State } from "../howl.config.ts";
-import denoJson from "../deno.json" with { type: "json" };
+import denoJson from "../../core/deno.json" with { type: "json" };
 
 const APP_NAME = Deno.env.get("APP_NAME") ?? "HOUND";
 const APP_VERSION = denoJson.version;
