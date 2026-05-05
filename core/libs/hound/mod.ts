@@ -629,7 +629,7 @@ ${'─'.repeat(40)}
       try {
         for await (const entry of this.#walkJobFiles(dirPath)) {
           try {
-            const mod = await import(`file://${entry}`);
+            const mod = await import(new URL(`file://${entry}`).href);
             for (const value of Object.values(mod)) {
               if (this.#isJobDefinition(value)) {
                 this.on(value as JobDefinition<TApp, unknown>);
@@ -647,8 +647,9 @@ ${'─'.repeat(40)}
   }
 
   async *#walkJobFiles(dir: string): AsyncGenerator<string> {
-    for await (const entry of Deno.readDir(dir)) {
-      const path = `${dir}/${entry.name}`;
+    const normalized = dir.endsWith('/') ? dir : dir + '/';
+    for await (const entry of Deno.readDir(normalized)) {
+      const path = `${normalized}${entry.name}`;
       if (entry.isDirectory) yield* this.#walkJobFiles(path);
       else if (entry.isFile && entry.name.endsWith('.job.ts')) yield path;
     }
