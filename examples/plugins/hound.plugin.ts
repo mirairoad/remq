@@ -1,4 +1,4 @@
-import { HoundApp, InMemoryStorage } from '@hushkey/hound/mod.ts';
+import { Hound, HoundApp, InMemoryStorage } from '@hushkey/hound/mod.ts';
 import type { RedisConnection } from '@hushkey/hound/types/index.ts';
 import type { HoundJobMap } from '../gen/hound-types.ts';
 

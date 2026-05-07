@@ -101,6 +101,9 @@ export type BoundEmitOptions = Omit<EmitOptions, 'queue'>;
  * Note: not parameterized over `TJobMap` on purpose — that would create a
  * circular type (job file → typed defineJob → HoundJobMap → job file).
  *
+ * @deprecated Use {@link HoundApp} — its `defineJob` is typed against `TJobMap`
+ * and narrows `ctx.emit*`. This manual-cast pattern is kept for back-compat only.
+ *
  * @example
  * // plugins/hound.plugin.ts
  * import { defineJob as _defineJob } from '@hushkey/hound/mod.ts';
@@ -122,17 +125,26 @@ export type BoundDefineJob<TApp extends Record<string, any>> = <
   options?: HandlerOptions,
 ) => JobDefinition<TApp, TData>;
 
-/** Type-safe emit function narrowed to the job map from codegen. */
+/**
+ * Type-safe emit function narrowed to the job map from codegen.
+ * @deprecated Use {@link HoundApp} — `app.hound.emit` is already narrowed.
+ */
 export type TypedEmit<TJobMap extends object> = <
   K extends keyof TJobMap,
 >(event: K, data: TJobMap[K], options?: BoundEmitOptions) => string;
 
-/** Type-safe emitAsync narrowed to the job map from codegen. */
+/**
+ * Type-safe emitAsync narrowed to the job map from codegen.
+ * @deprecated Use {@link HoundApp} — `app.hound.emitAsync` is already narrowed.
+ */
 export type TypedEmitAsync<TJobMap extends object> = <
   K extends keyof TJobMap,
 >(event: K, data: TJobMap[K], options?: BoundEmitOptions) => Promise<string>;
 
-/** Type-safe emitBatch narrowed to the job map from codegen. */
+/**
+ * Type-safe emitBatch narrowed to the job map from codegen.
+ * @deprecated Use {@link HoundApp} — `app.hound.emitBatch` is already narrowed.
+ */
 export type TypedEmitBatch<TJobMap extends object> = (
   jobs: {
     [K in keyof TJobMap]: {
@@ -143,7 +155,10 @@ export type TypedEmitBatch<TJobMap extends object> = (
   }[keyof TJobMap][],
 ) => Promise<string[]>;
 
-/** Type-safe handler registration narrowed to the job map from codegen. */
+/**
+ * Type-safe handler registration narrowed to the job map from codegen.
+ * @deprecated Use {@link HoundApp} — `app.hound.on` is already narrowed.
+ */
 export interface TypedOn<
   TApp extends Record<string, any>,
   TJobMap extends object,
@@ -160,6 +175,9 @@ export interface TypedOn<
 
 /**
  * Cast a Hound instance to have type-safe emit and on methods.
+ *
+ * @deprecated Use {@link HoundApp} — it owns a `TypedHound` internally and
+ * exposes it as `app.hound`. This manual-cast pattern is kept for back-compat only.
  *
  * @example
  * import type { HoundJobMap } from '../types/hound-types.ts';

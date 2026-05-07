@@ -66,7 +66,7 @@ export type TypedDefineJob<
   TJobMap extends object,
 > = <TData = unknown>(
   event: string,
-  handler: (ctx: TypedJobContext<TApp, TJobMap, TData>) => Promise<void>,
+  handler: (ctx: TypedJobContext<TApp, TJobMap, TData>) => void | Promise<void>,
   options?: HandlerOptions,
 ) => JobDefinition<TApp, TData>;
 
