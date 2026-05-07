@@ -19,12 +19,12 @@
       "blocks": [
         {
           "type": "p",
-          "text": "Start the gateway via hound.listen(). Pass a HoundManagement instance to also expose the management endpoints:"
+          "text": "Start the gateway via hound.listen(). HoundApp bundles a HoundManagement instance you can hand straight to listen() to expose the management endpoints:"
         },
         {
           "type": "code",
           "lang": "ts",
-          "text": "import { Hound, HoundManagement } from 'hound/';\n\nconst hound = Hound.create({ db: redis, auth: 'my-secret-token' });\nconst mgmt = new HoundManagement({ db: redis, hound });\n\nawait hound.start();\nhound.listen(4000, mgmt, () => console.log('Gateway on :4000'));"
+          "text": "import { HoundApp } from 'hound/';\n\nconst { hound, management } = new HoundApp({\n  db: redis,\n  auth: 'my-secret-token',\n});\n\nawait hound.start();\nhound.listen(4000, management, () => console.log('Gateway on :4000'));"
         },
         {
           "type": "p",
@@ -33,7 +33,7 @@
         {
           "type": "code",
           "lang": "ts",
-          "text": "import { createGateway } from 'hound/';\n\ncreateGateway({\n  port: 4000,\n  hostname: '0.0.0.0',\n  hound,\n  management: mgmt,\n  auth: 'my-secret-token',\n});"
+          "text": "import { createGateway } from 'hound/';\n\ncreateGateway({\n  port: 4000,\n  hostname: '0.0.0.0',\n  hound,\n  management,\n  auth: 'my-secret-token',\n});"
         }
       ]
     },
@@ -111,12 +111,12 @@
       "blocks": [
         {
           "type": "p",
-          "text": "Set the auth option on Hound.create() to require a Bearer token on all gateway requests:"
+          "text": "Set the auth option on new HoundApp() to require a Bearer token on all gateway requests:"
         },
         {
           "type": "code",
           "lang": "ts",
-          "text": "const hound = Hound.create({\n  db: redis,\n  auth: Deno.env.get('HOUND_TOKEN'),\n});"
+          "text": "const { hound } = new HoundApp({\n  db: redis,\n  auth: Deno.env.get('HOUND_TOKEN'),\n});"
         },
         {
           "type": "p",

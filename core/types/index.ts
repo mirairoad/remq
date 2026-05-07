@@ -128,11 +128,11 @@ export type JobContext<
   socket: JobSocketContext;
 };
 
-/** Async function that processes a job. Receives JobContext; use TData to type ctx.data. */
+/** Function that processes a job. Sync or async. Receives JobContext; use TData to type ctx.data. */
 export type JobHandler<
   TApp extends Record<string, unknown> = Record<string, unknown>,
   TData = unknown,
-> = (ctx: JobContext<TApp, TData>) => Promise<void>;
+> = (ctx: JobContext<TApp, TData>) => void | Promise<void>;
 
 /**
  * Middleware function — wraps every job handler execution.
@@ -155,7 +155,7 @@ export type JobHandler<
  */
 export type MiddlewareFn<
   TApp extends Record<string, unknown> = Record<string, unknown>,
-> = (ctx: JobContext<TApp, unknown>, next: () => Promise<void>) => Promise<void>;
+> = (ctx: JobContext<TApp, unknown>, next: () => Promise<void>) => void | Promise<void>;
 
 /** Options when registering a handler with `hound.on()`. */
 export interface HandlerOptions {

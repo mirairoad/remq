@@ -17,3 +17,10 @@ await hound.emitBatch([
   { event: 'user.read', data: { email: 'b@gmail.com', name: 'bob' } },
   { event: 'user.read', data: { email: 'c@gmail.com', name: 'carol' } },
 ]);
+
+await hound.emitAsync('user.read', { email: 'd@gmail.com', name: 'dave' });
+
+// hound.on('user.read', async (ctx) => {
+//   ctx.data.email;
+//   ctx.data.name;
+// });

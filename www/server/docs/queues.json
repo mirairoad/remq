@@ -39,7 +39,7 @@
         {
           "type": "code",
           "lang": "ts",
-          "text": "const hound = Hound.create({\n  db: redis,\n  concurrency: 20, // global max across all handlers\n});\n\nhound.on('email.send', handler, {\n  concurrency: 5, // max 5 concurrent email sends\n});"
+          "text": "const { hound } = new HoundApp({\n  db: redis,\n  concurrency: 20, // global max across all handlers\n});\n\nhound.on('email.send', handler, {\n  concurrency: 5, // max 5 concurrent email sends\n});"
         },
         {
           "type": "tip",
@@ -58,7 +58,7 @@
         {
           "type": "code",
           "lang": "ts",
-          "text": "const hound = Hound.create({\n  db: redis,\n  processor: {\n    queuePriority: {\n      critical: 1,\n      default: 2,\n      heavy: 3,\n    },\n  },\n});"
+          "text": "const { hound } = new HoundApp({\n  db: redis,\n  processor: {\n    queuePriority: {\n      critical: 1,\n      default: 2,\n      heavy: 3,\n    },\n  },\n});"
         },
         {
           "type": "p",
@@ -96,7 +96,7 @@
         {
           "type": "code",
           "lang": "ts",
-          "text": "const mgmt = new HoundManagement({ db: redis, hound });\n\nawait mgmt.api.queues.pause('heavy');\n// ... maintenance window ...\nawait mgmt.api.queues.resume('heavy');"
+          "text": "const { management } = new HoundApp({ db: redis });\n\nawait management.api.queues.pause('heavy');\n// ... maintenance window ...\nawait management.api.queues.resume('heavy');"
         }
       ]
     }

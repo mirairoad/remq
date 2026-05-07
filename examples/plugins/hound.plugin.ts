@@ -1,6 +1,5 @@
-import { Hound, HoundManagement, InMemoryStorage } from '@hushkey/hound/mod.ts';
+import { HoundApp, InMemoryStorage } from '@hushkey/hound/mod.ts';
 import type { RedisConnection } from '@hushkey/hound/types/index.ts';
-import type { TypedHound } from '@hushkey/hound/mod.ts';
 import type { HoundJobMap } from '../gen/hound-types.ts';
 
 const REDIS_URL = Deno.env.get('REDIS_URL');
@@ -35,7 +34,7 @@ const contextApp = {
   foo: 'bar',
 };
 
-const _hound = Hound.create({
+const app = new HoundApp<typeof contextApp, HoundJobMap>({
   db,
   ctx: contextApp,
   importMeta: import.meta,
@@ -49,11 +48,8 @@ const _hound = Hound.create({
   jobDirs: ['../_scheduled', '../_tasks'],
 });
 
-const management = new HoundManagement({ db, hound: _hound });
-
-_hound.listen(4000, management, (ctx) => {
+app.hound.listen(4000, app.management, (ctx) => {
   console.log(ctx.hostname, ctx.port, ctx.transport);
 });
 
-export const hound = _hound as TypedHound<typeof contextApp, HoundJobMap>;
-export { management };
+export const { hound, management, defineJob } = app;

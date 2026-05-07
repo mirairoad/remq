@@ -1137,14 +1137,14 @@ ${'─'.repeat(40)}
     timeoutMs?: number,
   ): Promise<void> {
     const run = (): Promise<void> => {
-      if (this.#middleware.length === 0) return handler(ctx);
+      if (this.#middleware.length === 0) return Promise.resolve(handler(ctx));
       let index = -1;
       const middleware = this.#middleware;
       const dispatch = async (i: number): Promise<void> => {
         if (i <= index) throw new Error('[hound] next() called multiple times');
         index = i;
-        if (i === middleware.length) return handler(ctx);
-        return middleware[i](ctx, () => dispatch(i + 1));
+        if (i === middleware.length) return await handler(ctx);
+        return await middleware[i](ctx, () => dispatch(i + 1));
       };
       return dispatch(0);
     };

@@ -1,9 +1,9 @@
-import { defineJob } from '@hushkey/hound/mod.ts';
+import { defineJob } from '../plugins/hound.plugin.ts';
 
-export const startWorldJob = defineJob<{ foo: string }, { email: string }>(
+export const startWorldJob = defineJob<{ email: string }>(
   'start-world',
   async (ctx) => {
-    ctx.data;
+    ctx.data.email;
     ctx.foo;
     console.log(
       '%c- runs every 1 minute',

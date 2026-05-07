@@ -86,7 +86,7 @@
       "blocks": [
         {
           "type": "p",
-          "text": "Handlers can emit downstream jobs using ctx.emit(), ctx.emitAsync(), or ctx.emitAndWait(). These behave identically to hound.emit() but are bound to the same Hound instance automatically:"
+          "text": "Handlers can emit downstream jobs using ctx.emit(), ctx.emitAsync(), ctx.emitBatch(), or ctx.emitAndWait(). These behave identically to hound.emit() but are bound to the same Hound instance automatically. When the handler is registered through HoundApp.defineJob<TApp, HoundJobMap>, the entire ctx.emit family is narrowed to HoundJobMap — wrong event names and mismatched payloads are caught at compile time:"
         },
         {
           "type": "code",

@@ -1,4 +1,4 @@
-import { defineJob } from '@hushkey/hound/mod.ts';
+import { defineJob } from '../plugins/hound.plugin.ts';
 
 export const endWorldJob = defineJob(
   'end-world',

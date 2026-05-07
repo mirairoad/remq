@@ -12,9 +12,22 @@
           "text": "HoundManagement provides a programmatic interface to inspect and control jobs and queues. It uses the same storage backend as Hound and can be used standalone or alongside a running instance."
         },
         {
+          "type": "p",
+          "text": "The simplest path is to read it off a HoundApp — one constructor wires the worker, the management API, and a typed defineJob:"
+        },
+        {
           "type": "code",
           "lang": "ts",
-          "text": "import { Hound, HoundManagement } from 'hound/';\n\nconst hound = Hound.create({ db: redis });\nconst mgmt = new HoundManagement({ db: redis, hound });"
+          "text": "import { HoundApp } from 'hound/';\n\nconst { hound, management } = new HoundApp({ db: redis });"
+        },
+        {
+          "type": "p",
+          "text": "Or instantiate HoundManagement directly when you only need the admin surface (e.g. a CLI script that talks to a remote Hound's storage but does not run handlers):"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "text": "import { HoundManagement } from 'hound/';\n\nconst management = new HoundManagement({ db: redis });"
         }
       ]
     },
@@ -22,7 +35,7 @@
       "id": "jobs-api",
       "heading": "Jobs API",
       "blocks": [
-        { "type": "p", "text": "Access job management through mgmt.api.jobs:" },
+        { "type": "p", "text": "Access job management through management.api.jobs:" },
         {
           "type": "table",
           "headers": ["Method", "Description"],
@@ -48,7 +61,7 @@
         {
           "type": "code",
           "lang": "ts",
-          "text": "// Find all failed jobs in the emails queue\nconst failed = await mgmt.api.jobs.find({ queue: 'emails', status: 'failed' });\n\n// Retry each one\nfor (const job of failed) {\n  await mgmt.api.jobs.retry(`${job.queue}:${job.id}`);\n}"
+          "text": "// Find all failed jobs in the emails queue\nconst failed = await management.api.jobs.find({ queue: 'emails', status: 'failed' });\n\n// Retry each one\nfor (const job of failed) {\n  await management.api.jobs.retry(`${job.queue}:${job.id}`);\n}"
         }
       ]
     },
@@ -58,7 +71,7 @@
       "blocks": [
         {
           "type": "p",
-          "text": "Access queue management through mgmt.api.queues:"
+          "text": "Access queue management through management.api.queues:"
         },
         {
           "type": "table",
@@ -87,7 +100,7 @@
         {
           "type": "code",
           "lang": "ts",
-          "text": "const stats = await mgmt.api.queues.stats('emails');\nconsole.log(stats);\n// { waiting: 12, delayed: 3, processing: 2, completed: 840, failed: 1, total: 858 }"
+          "text": "const stats = await management.api.queues.stats('emails');\nconsole.log(stats);\n// { waiting: 12, delayed: 3, processing: 2, completed: 840, failed: 1, total: 858 }"
         },
         {
           "type": "warning",
@@ -101,12 +114,12 @@
       "blocks": [
         {
           "type": "p",
-          "text": "Subscribe to real-time job completion events via mgmt.events.job. Each subscription returns an unsubscribe function:"
+          "text": "Subscribe to real-time job completion events via management.events.job. Each subscription returns an unsubscribe function:"
         },
         {
           "type": "code",
           "lang": "ts",
-          "text": "// Subscribe to all terminal events\nconst off = mgmt.events.job.finished((payload) => {\n  console.log(payload.jobId, payload.status);\n});\n\n// Subscribe to failures only\nmgmt.events.job.failed((payload) => {\n  alertTeam(`Job ${payload.jobId} failed: ${payload.error}`);\n});\n\n// Unsubscribe later\noff();"
+          "text": "// Subscribe to all terminal events\nconst off = management.events.job.finished((payload) => {\n  console.log(payload.jobId, payload.status);\n});\n\n// Subscribe to failures only\nmanagement.events.job.failed((payload) => {\n  alertTeam(`Job ${payload.jobId} failed: ${payload.error}`);\n});\n\n// Unsubscribe later\noff();"
         }
       ]
     }

@@ -63,13 +63,13 @@
       "blocks": [
         {
           "type": "p",
-          "text": "Create a Hound instance, register a handler, start the processor, then emit a job:"
+          "text": "Create a HoundApp, register a handler, start the processor, then emit a job. HoundApp bundles the Hound runtime, its management API, and a typed defineJob factory under one constructor:"
         },
         {
           "type": "code",
           "lang": "ts",
           "filename": "main.ts",
-          "text": "import { Hound, InMemoryStorage } from 'hound/';\n\nconst hound = Hound.create({\n  db: new InMemoryStorage(),\n});\n\nhound.on('user.welcome', async (ctx) => {\n  ctx.logger(`Sending welcome email to ${ctx.data.email}`);\n});\n\nawait hound.start();\nhound.emit('user.welcome', { email: 'leo@example.com' });"
+          "text": "import { HoundApp, InMemoryStorage } from 'hound/';\n\nconst app = new HoundApp({\n  db: new InMemoryStorage(),\n});\n\nconst { hound } = app;\n\nhound.on('user.welcome', async (ctx) => {\n  ctx.logger(`Sending welcome email to ${ctx.data.email}`);\n});\n\nawait hound.start();\nhound.emit('user.welcome', { email: 'leo@example.com' });"
         },
         {
           "type": "tip",
@@ -89,11 +89,11 @@
           "type": "code",
           "lang": "ts",
           "filename": "main.ts",
-          "text": "import { Hound } from 'hound/';\nimport { connect } from 'npm:ioredis';\n\nconst redis = new connect(Deno.env.get('REDIS_URL'));\n\nconst hound = Hound.create({ db: redis });\n\nhound.on('email.send', async (ctx) => {\n  await sendEmail(ctx.data);\n});\n\nawait hound.start();"
+          "text": "import { HoundApp } from 'hound/';\nimport { connect } from 'npm:ioredis';\n\nconst redis = new connect(Deno.env.get('REDIS_URL'));\n\nconst { hound } = new HoundApp({ db: redis });\n\nhound.on('email.send', async (ctx) => {\n  await sendEmail(ctx.data);\n});\n\nawait hound.start();"
         },
         {
           "type": "tip",
-          "text": "Hound is a singleton — Hound.create() returns the same instance on repeated calls. Use Hound.getInstance() to retrieve it elsewhere in your codebase."
+          "text": "Hound itself is a singleton — repeated HoundApp constructors share the same underlying Hound instance. Use Hound.getInstance() to retrieve it elsewhere in your codebase."
         }
       ]
     }

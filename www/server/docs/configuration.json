@@ -9,7 +9,7 @@
       "blocks": [
         {
           "type": "p",
-          "text": "Pass options to Hound.create() to configure the instance:"
+          "text": "Pass options to new HoundApp() (or Hound.create() if you only need the runtime) to configure the instance. HoundApp accepts the same HoundOptions and additionally exposes typed defineJob and management:"
         },
         {
           "type": "table",
@@ -56,7 +56,11 @@
         {
           "type": "code",
           "lang": "ts",
-          "text": "const hound = Hound.create({\n  db: redis,\n  ctx: { db: myDatabase, config: appConfig },\n  concurrency: 25,\n  auth: Deno.env.get('HOUND_TOKEN'),\n  importMeta: import.meta,\n  jobDirs: ['./jobs'],\n  processor: { pollIntervalMs: 500 },\n});"
+          "text": "import { HoundApp } from 'hound/';\nimport type { HoundJobMap } from './gen/hound-types.ts';\n\nconst contextApp = { db: myDatabase, config: appConfig };\n\nconst app = new HoundApp<typeof contextApp, HoundJobMap>({\n  db: redis,\n  ctx: contextApp,\n  concurrency: 25,\n  auth: Deno.env.get('HOUND_TOKEN'),\n  importMeta: import.meta,\n  jobDirs: ['./jobs'],\n  processor: { pollIntervalMs: 500 },\n});\n\nexport const { hound, management, defineJob } = app;"
+        },
+        {
+          "type": "tip",
+          "text": "The two generics on HoundApp<TApp, TJobMap> propagate type-safety end-to-end: hound.emit / emitAsync / emitBatch / emitAndWait / on are narrowed to HoundJobMap, defineJob handlers receive a typed ctx.emit family, and ctx is the shape of TApp. Generate HoundJobMap with deno task codegen — see Defining Jobs."
         }
       ]
     },
@@ -136,7 +140,7 @@
         {
           "type": "code",
           "lang": "ts",
-          "text": "const hound = Hound.create({\n  db: redis,\n  processor: {\n    retry: {\n      retryDelayMs: 2_000,\n      retryBackoff: 'exponential',\n    },\n  },\n});"
+          "text": "const app = new HoundApp({\n  db: redis,\n  processor: {\n    retry: {\n      retryDelayMs: 2_000,\n      retryBackoff: 'exponential',\n    },\n  },\n});"
         }
       ]
     },
@@ -151,7 +155,7 @@
         {
           "type": "code",
           "lang": "ts",
-          "text": "// Inspect\nawait management.api.jobs.find({ status: 'failed' });\n\n// Replay one\nawait management.api.jobs.retry('default:jobId');"
+          "text": "const { management } = new HoundApp({ db: redis });\n\n// Inspect\nawait management.api.jobs.find({ status: 'failed' });\n\n// Replay one\nawait management.api.jobs.retry('default:jobId');"
         },
         {
           "type": "tip",

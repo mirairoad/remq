@@ -10,6 +10,10 @@
         {
           "type": "p",
           "text": "Jobs can be registered inline with hound.on() or defined as reusable JobDefinition objects using defineJob(). The defineJob() approach colocates the handler with its data shape, queue config, and retry options — and provides full TypeScript inference across your app."
+        },
+        {
+          "type": "tip",
+          "text": "When you instantiate via new HoundApp<TApp, TJobMap>, the defineJob it exposes is bound to your app context (ctx is typed as TApp) and gives handlers a typed ctx.emit family narrowed to HoundJobMap. The plain defineJob from 'hound/' still works — use it for the bare runtime, or pull the bound one off app.defineJob."
         }
       ]
     },
@@ -19,13 +23,23 @@
       "blocks": [
         {
           "type": "p",
-          "text": "Call defineJob() with an event name and a handler. The second generic parameter types the ctx.data payload:"
+          "text": "Call defineJob() with an event name and a handler. When using the standalone defineJob() from 'hound/', the two generics type the app context and the ctx.data payload:"
         },
         {
           "type": "code",
           "lang": "ts",
           "filename": "jobs/email.job.ts",
           "text": "import { defineJob } from 'hound/';\n\nexport const sendEmailJob = defineJob<App, { to: string; subject: string }>(\n  'email.send',\n  async (ctx) => {\n    // ctx.data is typed: { to: string; subject: string }\n    await sendEmail(ctx.data);\n  },\n  {\n    queue: 'emails',\n    concurrency: 5,\n    attempts: 3,\n    retryBackoff: 'exponential',\n  }\n);"
+        },
+        {
+          "type": "p",
+          "text": "Or pull defineJob off a HoundApp — TApp is already bound, so each call only declares its own payload, and ctx.emit is typed against HoundJobMap:"
+        },
+        {
+          "type": "code",
+          "lang": "ts",
+          "filename": "jobs/email.job.ts",
+          "text": "import { defineJob } from '../plugins/hound.plugin.ts';\n\nexport const sendEmailJob = defineJob<{ to: string; subject: string }>(\n  'email.send',\n  async (ctx) => {\n    // ctx is typed as TApp; ctx.data as { to, subject }\n    await sendEmail(ctx.data);\n    ctx.emit('analytics.track', { event: 'email.sent' }); // typed against HoundJobMap\n  },\n  { queue: 'emails', concurrency: 5, attempts: 3 },\n);"
         },
         {
           "type": "p",
@@ -91,7 +105,7 @@
           "type": "code",
           "lang": "ts",
           "filename": "hound.plugin.ts",
-          "text": "const hound = Hound.create({\n  db: redis,\n  importMeta: import.meta, // required — used to resolve relative paths\n  jobDirs: ['../_tasks', '../_scheduled'],\n});\n\nawait hound.start();\n// ^ scans both dirs, imports every *.job.ts, and registers all exported jobs"
+          "text": "import { HoundApp } from 'hound/';\nimport type { HoundJobMap } from '../gen/hound-types.ts';\n\nconst contextApp = { foo: 'bar' };\n\nconst app = new HoundApp<typeof contextApp, HoundJobMap>({\n  db: redis,\n  ctx: contextApp,\n  importMeta: import.meta, // required — used to resolve relative paths\n  jobDirs: ['../_tasks', '../_scheduled'],\n});\n\nexport const { hound, management, defineJob } = app;\n\nawait hound.start();\n// ^ scans both dirs, imports every *.job.ts, and registers all exported jobs"
         },
         {
           "type": "h3",

@@ -39,7 +39,7 @@
         {
           "type": "code",
           "lang": "ts",
-          "text": "import { Hound, InMemoryStorage } from 'hound/';\n\nconst hound = Hound.create({\n  db: new InMemoryStorage(),\n});"
+          "text": "import { HoundApp, InMemoryStorage } from 'hound/';\n\nconst { hound } = new HoundApp({\n  db: new InMemoryStorage(),\n});"
         },
         {
           "type": "warning",
@@ -58,7 +58,7 @@
         {
           "type": "code",
           "lang": "ts",
-          "text": "import { Hound } from 'hound/';\nimport { connect } from 'npm:ioredis';\n\nconst redis = new connect(Deno.env.get('REDIS_URL'));\n\nconst hound = Hound.create({ db: redis });"
+          "text": "import { HoundApp } from 'hound/';\nimport { connect } from 'npm:ioredis';\n\nconst redis = new connect(Deno.env.get('REDIS_URL'));\n\nconst { hound } = new HoundApp({ db: redis });"
         },
         {
           "type": "tip",
@@ -77,7 +77,7 @@
         {
           "type": "code",
           "lang": "ts",
-          "text": "import { Hound, DenoKvStorage } from 'hound/';\n\nconst kv = await Deno.openKv();\nconst hound = Hound.create({\n  db: new DenoKvStorage(kv),\n});"
+          "text": "import { HoundApp, DenoKvStorage } from 'hound/';\n\nconst kv = await Deno.openKv();\nconst { hound } = new HoundApp({\n  db: new DenoKvStorage(kv),\n});"
         }
       ]
     },
